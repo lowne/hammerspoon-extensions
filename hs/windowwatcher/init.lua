@@ -1,4 +1,7 @@
---- == windowwatcher == ---
+--- === hs.windowwatcher ===
+---
+--- Watches interesting events on interesting windows
+
 hs = require'hs._inject_extensions'
 local next,pairs,ipairs=next,pairs,ipairs
 local setmetatable=setmetatable
@@ -22,7 +25,53 @@ local events={windowCreated=true, windowDestroyed=true, windowMoved=true,
   windowTitleChanged=true,
 }
 for k in pairs(events) do windowwatcher[k]=k end -- expose events
+--- hs.windowwatcher.windowCreated
+--- Constant
+--- A new window was created
 
+--- hs.windowwatcher.windowDestroyed
+--- Constant
+--- A window was destroyed
+
+--- hs.windowwatcher.windowMoved
+--- Constant
+--- A window was moved or resized, including toggling fullscreen/maximize
+
+--- hs.windowwatcher.windowMinimized
+--- Constant
+--- A window was minimized
+
+--- hs.windowwatcher.windowUnminimized
+--- Constant
+--- A window was unminimized
+
+--- hs.windowwatcher.windowFullscreened
+--- Constant
+--- A window was expanded to full screen
+
+--- hs.windowwatcher.windowUnfullscreened
+--- Constant
+--- A window was reverted back from full screen
+
+--- hs.windowwatcher.windowHidden
+--- Constant
+--- A window is no longer visible due to it being minimized or its application being hidden (e.g. via cmd-h)
+
+--- hs.windowwatcher.windowShown
+--- Constant
+--- A window was became visible again after being hidden
+
+--- hs.windowwatcher.windowFocused
+--- Constant
+--- A window received focus
+
+--- hs.windowwatcher.windowUnfocused
+--- Constant
+--- A window lost focus
+
+--- hs.windowwatcher.windowTitleChanged
+--- Constant
+--- A window's title changed
 
 local apps={global={windows={}}} -- all GUI apps
 
@@ -39,7 +88,6 @@ end
 
 function Window:focused()
   if apps.global.focused==self then return log.df('Window %d (%s) already focused',self.id,self.app.name) end
-  --  print('truly focused')
   apps.global.focused=self
   self.app.focused=self
   self:emitEvent(windowwatcher.windowFocused)
@@ -305,7 +353,6 @@ end
 
 local function appEvent(appname,event,app,retry)
   local sevent={[0]='launching','launched','terminated','hidden','unhidden','activated','deactivated'}
-  --  local sevent={'activated','deactivated','hidden','launched','launching','terminated','unhidden'}
   log.vf('Received app %s for %s',sevent[event],appname)
   if event==hsappwatcher.launched then return startAppWatcher(app,appname) end
   local appo=apps[appname]
@@ -334,10 +381,7 @@ local function startGlobalWatcher()
   local runningApps = hsapp.runningApplications()
   log.f('Registering %d running apps',#runningApps)
   for _,app in ipairs(runningApps) do
-
-    --    if app:kind()>=0 then
     startAppWatcher(app,app:title())
-    --    end
   end
   apps.global.watcher:start()
 end
@@ -358,10 +402,6 @@ local function stopGlobalWatcher()
   apps.global.watcher:stop()
   apps={global={windows={}}}
   log.f('Unregistered %d apps',totalApps)
-  --  focusedWindowForApp,windowsForApp={},{}
-  --  hsWindowWatchers,hsAppWatchers={},{}
-  --  hsGlobalWatcher:stop()
-  --  hsGlobalWatcher=nil
 end
 
 local function subscribe(self,event,fn)
@@ -376,6 +416,18 @@ local function unsubscribe(self,event)
   --  if not next(self.events) then return self:unsubscribeAll() end
   return self
 end
+
+
+--- hs.windowwatcher:subscribe(event,tn)
+--- Method
+--- Subscribes to one or more events
+---
+--- Parameters:
+---  * event - string or table of strings, the event(s) to subscribe to (see the `hs.windowwatcher` constants)
+--   * fn - the callback for the event(s); it should accept as parameter a `hs.window` object referring to the event's window
+---
+--- Returns:
+---  * the `hs.windowwatcher` object for method chaining
 function windowwatcher:subscribe(event,fn)
   if type(event)=='string' then return subscribe(self,event,fn)
   elseif type(event)=='table' then
@@ -385,6 +437,16 @@ function windowwatcher:subscribe(event,fn)
     return self
   else error('event must be a string or a table of strings',2) end
 end
+
+--- hs.windowwatcher:unsubscribe(event)
+--- Method
+--- Removes all subscriptions
+---
+--- Parameters:
+---  * event - string or table of strings, the event(s) to unsubscribe
+---
+--- Returns:
+---  * the `hs.windowwatcher` object for method chaining
 function windowwatcher:unsubscribe(event)
   if type(event)=='string' then return unsubscribe(self,event)
   elseif type(event)=='table' then
@@ -395,6 +457,12 @@ function windowwatcher:unsubscribe(event)
   else error('event must be a string or a table of strings',2) end
 end
 
+--- hs.windowwatcher:unsubscribeAll() -> hs.windowwatcher
+--- Method
+--- Removes all subscriptions
+---
+--- Returns:
+---  * the `hs.windowwatcher` object for method chaining
 function windowwatcher:unsubscribeAll()
   self.events={}
   return self
@@ -408,12 +476,15 @@ local function filterWindows(self)
   end
   if true then return end
   for appname,app in pairs(apps) do
-    print('filter',appname,app.windows)
     for _,window in pairs(app.windows) do
       window:setWWatcher(self)
     end
   end
 end
+
+--- hs.windowwatcher:start()
+--- Method
+--- Starts the windowwatcher; after calling this, all subscribed events will trigger their callback
 function windowwatcher:start()
   if watchers[self]==true then log.i('windowwatcher was already started, ignoring') return end
   startGlobalWatcher()
@@ -421,10 +492,23 @@ function windowwatcher:start()
   filterWindows(self)
 end
 
+--- hs.windowwatcher:stop()
+--- Method
+--- Stops the windowwatcher; no more event callbacks will be triggered, but the subscriptions remain intact for a subsequent call to `hs.windowwatcher:start()`
 function windowwatcher:stop()
   watchers[self]=nil
   stopGlobalWatcher()
 end
+
+--- hs.windowwatcher.new(windowfilter) -> hs.windowwatcher
+--- Function
+--- Creates a new windowwatcher instance
+---
+--- Parameters:
+---  * windowfilter - (optional) a `hs.windowfilter` object to only receive events about specific windows; if omitted `hs.windowfilter.default` will be used
+---
+--- Returns:
+---  * a new windowwatcher instance
 
 function windowwatcher.new(windowfilter)
   local o = setmetatable({events={},windowfilter=windowfilter or hs.windowfilter.default},{__index=windowwatcher})
