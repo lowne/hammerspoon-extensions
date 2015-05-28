@@ -1,3 +1,7 @@
+--- === hs.delayed ===
+---
+--- Simple helper for delayed callbacks
+
 hs = require'hs._inject_extensions'
 local delayed = {}
 local log = hs.logger.new('delayed','info')
@@ -9,8 +13,7 @@ local gettime = require'socket'.gettime --FIXME need a native hook
 local TOLERANCE=0.05
 
 local pending = {}
-local toAdd = {}
---local globalPrecision = 1 -- in seconds
+local toAdd = {}  -- avoid issues when calling .doAfter from a callback
 local timer
 local timetick,lasttime = 3600,0
 local timerfn
@@ -27,14 +30,12 @@ timerfn=function()
   local mindelta = 3600
   local pendingTotal=0
   for d in pairs(pending) do
-    --      d.time = d.time - globalPrecision
     d.time = d.time - dtime
     if d.time<=TOLERANCE then
       pending[d] = nil
       log.vf('Running pending callback, %.2fs late',-d.time)
       d.fn(tunpack(d.args))
-      return timerfn()
-        --        if not pending[d] then break end
+      return timerfn() -- rerun through the list for better precision, in case fn took a while
     else
       mindelta=min(mindelta,d.time)
       pendingTotal=pendingTotal+1
@@ -60,6 +61,26 @@ timerfn=function()
     end
   end
 end
+
+--- hs.delayed.doAfter(previous_id, delay, fn, ...) -> id
+--- Function
+--- Schedules a function for delayed execution
+---
+--- Parameters:
+---  * previous_id - (optional) if provided, `hs.delayed.cancel(previous_id)` will be called before scheduling the new callback
+---  * delay - callback delay in seconds
+---  * fn - callback function
+---  * ... - arguments to the callback function
+---
+--- Returns:
+---  * id - a callback id that can be used to cancel this scheduled callback
+---
+--- Usage:
+--- ```local coalescedCallback
+--- local function callbackForIncomingDelugeOfEvents(event)
+---   coalescedCallback = hs.delayed.doAfter(coalescedCallback, 1, doStuff, event)
+---   -- will only process the last event, after there have been no new incoming events for 1 second
+--- end```
 
 function delayed.doAfter(prev,delay,fn,...)
   local args = {...}
@@ -95,6 +116,16 @@ function delayed.doAfter(prev,delay,fn,...)
   return d
 end
 
+--- hs.delayed.cancel(id)
+--- Function
+--- Cancels a previously scheduled callback, if it hasn't yet fired
+---
+--- Parameters:
+---  * id - id of the callback to cancel
+---
+--- Notes:
+---  * `id` can be invalid (e.g. when the callback has already fired); if so this function will just return
+
 function delayed.cancel(prev)
   if not prev or (not pending[prev] and not toAdd[prev]) then return end
   log.d('Cancelling callback')
@@ -104,6 +135,10 @@ function delayed.cancel(prev)
     log.d('No more pending callbacks; stopping timer')
   end
 end
+
+--- hs.delayed.stop()
+--- Function
+--- Cancels all scheduled callbacks
 
 function delayed.stop()
   if timer then timer:stop() end

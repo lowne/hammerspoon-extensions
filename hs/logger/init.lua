@@ -1,5 +1,6 @@
---- Simple logger for debug purposes
---@module logger
+--- === hs.logger ===
+---
+--- Simple logger for debugging purposes
 
 local date,time = os.date,os.time
 local format,sub=string.format,string.sub
@@ -24,6 +25,21 @@ local l = function(loglevel,lvl,id,...)
   if loglevel>=lvl then return lf(loglevel,lvl,id,concat(fmt,' ',1,min(select('#',...),#fmt)),...) end
 end
 
+
+--- hs.logger.new(id, loglevel) -> logger
+--- Function
+--- Creates a new logger instance
+---
+--- Parameters:
+---  * id - a string identifier for the instance (usually the module name)
+---  * loglevel - can be 'nothing', 'error', 'warning', 'info', 'debug', or 'verbose'; or a corresponding number between 0 and 5; defaults to 'warning' if omitted
+---
+--- Returns:
+---  * the new logger instance
+---
+--- Usage:
+---  * `local log = hs.logger.new('mymodule','debug')`
+---  * `log.i('Initializing')` -- will print `[mymodule] Initializing` to the console
 
 local function new(id,loglevel)
   if type(id)~='string' then error('id must be a string',2) end
@@ -59,56 +75,85 @@ local function new(id,loglevel)
 end
 return {new=new}
 
---- Logger instance
---@type log
+--- hs.logger:setLogLevel(loglevel)
+--- Method
+--- Sets the log level of the logger instance
+---
+--- Parameters:
+---  * loglevel - can be 'nothing', 'error', 'warning', 'info', 'debug', or 'verbose'; or a corresponding number between 0 and 5
 
---- Log an error
--- @function [parent=#log] e
--- @param ...
+--- hs.logger:e(...)
+--- Method
+--- Logs an error to the console
+--- 
+--- Parameters:
+---  * ... - one or more message strings
 
---- Log a warning
--- @function [parent=#log] w
--- @param ...
+--- hs.logger:ef(fmt,...)
+--- Method
+--- Logs a formatted error to the console
+--- 
+--- Parameters:
+---  * fmt - formatting string as per string.format
+---  * ... - arguments to fmt
 
---- Log info
--- @function [parent=#log] i
--- @param ...
+--- hs.logger:w(...)
+--- Method
+--- Logs a warning to the console
+--- 
+--- Parameters:
+---  * ... - one or more message strings
 
---- Log debug info
--- @function [parent=#log] d
--- @param ...
+--- hs.logger:wf(fmt,...)
+--- Method
+--- Logs a formatted warning to the console
+--- 
+--- Parameters:
+---  * fmt - formatting string as per string.format
+---  * ... - arguments to fmt
 
---- Log verbose info
--- @function [parent=#log] v
--- @param ...
+--- hs.logger:i(...)
+--- Method
+--- Logs info to the console
+--- 
+--- Parameters:
+---  * ... - one or more message strings
 
---- Log a formatted error
--- @function [parent=#log] ef
--- @param #string fmt as per string.format
--- @param ... args to fmt
+--- hs.logger:f(fmt,...)
+--- Method
+--- Logs formatted info to the console
+--- 
+--- Parameters:
+---  * fmt - formatting string as per string.format
+---  * ... - arguments to fmt
 
---- Log a formatted warning
--- @function [parent=#log] wf
--- @param #string fmt as per string.format
--- @param ... args to fmt
+--- hs.logger:d(...)
+--- Method
+--- Logs debug info to the console
+--- 
+--- Parameters:
+---  * ... - one or more message strings
 
---- Log formatted info
--- @function [parent=#log] f
--- @param #string fmt as per string.format
--- @param ... args to fmt
+--- hs.logger:df(fmt,...)
+--- Method
+--- Logs formatted debug info to the console
+--- 
+--- Parameters:
+---  * fmt - formatting string as per string.format
+---  * ... - arguments to fmt
 
---- Log formatted debug info
--- @function [parent=#log] df
--- @param #string fmt as per string.format
--- @param ... args to fmt
+--- hs.logger:v(...)
+--- Method
+--- Logs verbose info to the console
+--- 
+--- Parameters:
+---  * ... - one or more message strings
 
---- Log formatted verbose info
--- @function [parent=#log] vf
--- @param #string fmt as per string.format
--- @param ... args to fmt
-
----@function [parent=#logger] new
---@param #string id id of the logger instance (usually the module name)
---@param #string loglevel
---@return #log a new logger instance
+--- hs.logger:vf(fmt,...)
+--- Method
+--- Logs formatted verbose info to the console
+--- 
+--- Parameters:
+---  * fmt - formatting string as per string.format
+---  * ... - arguments to fmt
 
