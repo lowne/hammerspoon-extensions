@@ -2,6 +2,9 @@
 ---
 --- Simple logger for debugging purposes
 
+-- * This can mainly be useful for diagnosing complex scripts; however there is some overhead involved.
+-- * Implementing a mock version could help, although not completely as lua lacks lazy evaluation
+
 local date,time = os.date,os.time
 local format,sub=string.format,string.sub
 local select,print,concat,min=select,print,table.concat,math.min

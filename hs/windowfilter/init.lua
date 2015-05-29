@@ -2,6 +2,11 @@
 ---
 --- Filters windows by application, role, and/or title
 
+-- * This module should fulfill a lot of use cases
+-- * The root and default filters should be quite handy for users; however that means ongoing maintenance on the list
+--    (how many menulets are out there?)
+-- * Maybe an additional filter could be added for window geometry (e.g. minimum width/heigth/area)
+
 hs=require'hs._inject_extensions'
 local log=hs.logger.new('wfilter')
 local ipairs,type,smatch = ipairs,type,string.match
@@ -45,7 +50,7 @@ local SKIP_APPS_TRANSIENT_WINDOWS = {
 
 local APPS_ALLOW_NONSTANDARD_WINDOWS = {
   --TODO keep this updated (used in the default filter)
-  'iTerm2', 'Lua Development Tools Product', 'SwitchResX Daemon',
+  'iTerm2', --[['Lua Development Tools Product', 'SwitchResX Daemon',]]
 }
 
 local APPS_SKIP_NO_TITLE = {

@@ -2,6 +2,22 @@
 ---
 --- Watches interesting events on interesting windows
 
+-- This module abstracts hs.application.watcher and hs.uielement.watcher into a simple and coherent API
+-- for users who are interested in window events. Additionally, a lot of effort is spent on cleaning up
+-- the mess coming from upstream:
+--   * reduntant events are never fired more than once
+--   * related events are fired in the correct order (e.g. the previous window is unfocused before the
+--     current one is focused)
+--   * 'missing' events are filled in (e.g. a focused window that gets destroyed for any reason emits unfocused first)
+--   * coherency is maintained (e.g. closing System Preferences with cmd-w has the same result as with cmd-q)
+--
+--
+-- * There is the usual problem with spaces
+-- * window(un)fullscreened is amusingly horrible and probably needs a better name
+-- * window(un)maximized could be implemented (but currently isn't)
+-- * Perhaps the user should be allowed to provide his own root filter for better performance
+--   (e.g. if she knows all she cares about is Safari)
+
 hs = require'hs._inject_extensions'
 local next,pairs,ipairs=next,pairs,ipairs
 local setmetatable=setmetatable
@@ -429,6 +445,12 @@ local function unsubscribe(self,event)
   return self
 end
 
+--- hs.windowwatcher:getWindows() -> table
+--- Method
+--- Gets the list of windows being watched
+---
+--- Returns:
+---  * a list of `hs.window` objects that are being watched
 function windowwatcher:getWindows()
   local t={}
   for appname,app in pairs(apps) do

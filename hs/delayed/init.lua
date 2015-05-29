@@ -2,6 +2,10 @@
 ---
 --- Simple helper for delayed callbacks
 
+-- * Needs a native gettime()
+-- * The API is kept super simple; perhaps a proper transactional taskqueue would be useful? What use cases?
+-- * Debugging can get difficult; ideally this should be fixed (either via explicit params, or better via debug.getinfo)
+
 hs = require'hs._inject_extensions'
 local delayed = {}
 local log = hs.logger.new('delayed','info')
