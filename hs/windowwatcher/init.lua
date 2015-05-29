@@ -73,7 +73,7 @@ for k in pairs(events) do windowwatcher[k]=k end -- expose events
 --- Constant
 --- A window's title changed
 
-local apps={global={windows={}}} -- all GUI apps
+local apps={global={}} -- all GUI apps
 
 
 local Window={} -- class
@@ -81,8 +81,10 @@ local Window={} -- class
 function Window:emitEvent(event)
   log.f('Emitting %s %d (%s)',event,self.id,self.app.name)
   for ww in pairs(self.wws) do
-    local fn=ww.events[event]
-    if fn then fn(self.window) end
+    if watchers[ww] then -- skip if wwatcher was stopped
+      local fn=ww.events[event]
+      if fn then fn(self.window) end
+    end
   end
 end
 
@@ -101,6 +103,7 @@ function Window:unfocused()
 end
 
 function Window:setWWatcher(ww)
+  self.wws[ww]=nil --reset in case it's now filtered after title change
   if ww.windowfilter:isWindowAllowed(self.window,self.app.name) then
     self.wws[ww]=true
   end
@@ -112,7 +115,6 @@ function Window.new(win,id,app,watcher)
   if win:isMinimized() then o.isMinimized = true end
   o.isFullscreen = win:isFullScreen()
   app.windows[id]=o
-  apps.global.windows[id]=o
   for ww,active in pairs(watchers) do
     if active then o:setWWatcher(ww) end
   end
@@ -129,10 +131,10 @@ function Window:destroyed()
 end
 local WINDOWMOVED_DELAY=0.5
 function Window:moved()
-  self.movedDelayed=delayed.doAfter(self.movedDelayed,WINDOWMOVED_DELAY,Window.postMoved,self)
+  self.movedDelayed=delayed.doAfter(self.movedDelayed,WINDOWMOVED_DELAY,Window.doMoved,self)
 end
 
-function Window:postMoved()
+function Window:doMoved()
   self:emitEvent(windowwatcher.windowMoved)
   local fs = self.window:isFullScreen()
   local oldfs = self.isFullscreen or false
@@ -143,9 +145,14 @@ function Window:postMoved()
 end
 local TITLECHANGED_DELAY=0.5
 function Window:titleChanged()
-  self.titleDelayed=delayed.doAfter(self.titleDelayed,TITLECHANGED_DELAY,Window.emitEvent,self,windowwatcher.windowTitleChanged)
+  self.titleDelayed=delayed.doAfter(self.titleDelayed,TITLECHANGED_DELAY,Window.doTitleChanged,self)
 end
-
+function Window:doTitleChanged()
+  for ww in pairs(watchers) do
+    self:setWWatcher(ww) -- recheck the filter for all watchers
+  end
+  self:emitEvent(windowwatcher.windowTitleChanged)
+end
 function Window:hidden()
   if self.isHidden then return log.df('Window %d (%s) already hidden',self.id,self.app.name) end
   self:unfocused()
@@ -211,8 +218,13 @@ function App.new(app,appname,watcher)
   o:getFocused()
   if app:isFrontmost() then
     log.df('App %s is the frontmost app',appname)
+    if apps.global.active then apps.global.active:deactivated() end
     apps.global.active = o
-    if o.focused then log.df('Window %d is the focused window',o.focused.id) apps.global.focused=o.focused end
+    if o.focused then
+      o.focused:focused()
+      log.df('Window %d is the focused window',o.focused.id)
+      --      apps.global.focused=o.focused
+    end
   end
   return o
 end
@@ -400,7 +412,7 @@ local function stopGlobalWatcher()
     totalApps=totalApps+1
   end
   apps.global.watcher:stop()
-  apps={global={windows={}}}
+  apps={global={}}
   log.f('Unregistered %d apps',totalApps)
 end
 
@@ -417,6 +429,19 @@ local function unsubscribe(self,event)
   return self
 end
 
+function windowwatcher:getWindows()
+  local t={}
+  for appname,app in pairs(apps) do
+    if appname~='global' then
+      for _,window in pairs(app.windows) do
+        for ww in pairs(window.wws) do
+          if ww==self then t[#t+1]=window.window end
+        end
+      end
+    end
+  end
+  return t
+end
 
 --- hs.windowwatcher:subscribe(event,tn)
 --- Method
@@ -470,14 +495,11 @@ end
 
 
 local function filterWindows(self)
-  local wf=self.windowfilter
-  for _,window in pairs(apps.global.windows) do
-    window:setWWatcher(self)
-  end
-  if true then return end
   for appname,app in pairs(apps) do
-    for _,window in pairs(app.windows) do
-      window:setWWatcher(self)
+    if appname~='global' then
+      for _,window in pairs(app.windows) do
+        window:setWWatcher(self)
+      end
     end
   end
 end

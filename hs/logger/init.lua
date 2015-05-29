@@ -17,7 +17,7 @@ local lf = function(loglevel,lvl,id,fmt,...)
   if loglevel<lvl then return end
   local ct = time()
   local stime = '        '
-  if ct-lasttime>4 or lvl<3 then stime=date('%X') lasttime=ct end
+  if ct-lasttime>0 or lvl<3 then stime=date('%X') lasttime=ct end
   if id==lastid and lvl>3 then id='          ' else lastid=id end
   print(format('%s %s%s %s'..fmt,stime,slevels[lvl][1],id,slevels[lvl][2],...))
 end

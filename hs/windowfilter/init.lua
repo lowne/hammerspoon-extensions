@@ -12,9 +12,9 @@ windowfilter.setLogLevel=function(lvl)log.setLogLevel(lvl) return windowfilter e
 local SKIP_APPS_NO_PID = {
   --TODO keep this updated (used in the root filter)
   'universalaccessd','sharingd','Safari Networking','iTunes Helper','Safari Web Content',
-  'App Store Web Content',
+  'App Store Web Content', 'Safari Database Storage',
   'Google Chrome Helper','Spotify Helper','Karabiner_AXNotifier',
-  'Little Snitch Agent','Little Snitch Network Monitor',
+--  'Little Snitch Agent','Little Snitch Network Monitor', -- depends on security settings in Little Snitch
 }
 
 local SKIP_APPS_NO_PID_BUNDLE = {
@@ -23,7 +23,6 @@ local SKIP_APPS_NO_PID_BUNDLE = {
 
 local SKIP_APPS_NO_WINDOWS = {
   --TODO keep this updated (used in the root filter)
-  --'loginwindow', --FIXME this actually has a window...
   'com.apple.internetaccounts', 'CoreServicesUIAgent', 'AirPlayUIAgent',
   'SystemUIServer', 'Dock', 'com.apple.dock.extra', 'storeuid',
   'Folder Actions Dispatcher', 'Keychain Circle Notification', 'Wi-Fi',
@@ -36,7 +35,7 @@ local SKIP_APPS_NO_WINDOWS = {
 
 local SKIP_APPS_TRANSIENT_WINDOWS = {
   --TODO keep this updated (used in the default filter)
-  'Spotlight', 'Notification Center',
+  'Spotlight', 'Notification Center', 'loginwindow', 'ScreenSaverEngine',
   -- preferences etc
   'PopClip','Isolator', 'CheatSheet', 'CornerClickBG', 'Alfred 2', 'Moom', 'CursorSense Manager',
   -- menulets
@@ -77,32 +76,42 @@ function wf:isWindowAllowed(window,appname)--appname,windowrole,windowtitle)
   end
   local function allowWindow(app,role,title,fullscreen,visible)
     if app.titles then
-      if type(app.titles)=='number' then if #title<=app.titles then return end
-      elseif not matchTitle(app.titles,title) then return end
+      if type(app.titles)=='number' then if #title<=app.titles then return false end
+      elseif not matchTitle(app.titles,title) then return false end
     end
-    if app.rtitles and matchTitle(app.rtitles,title) then return end
-    if app.roles and not app.roles[role] then return end
-    if app.fullscreen~=nil and app.fullscreen~=fullscreen then return end
-    if app.visible~=nil and app.visible~=visible then return end
+    if app.rtitles and matchTitle(app.rtitles,title) then return false end
+    if app.roles and not app.roles[role] then return false end
+    if app.fullscreen~=nil and app.fullscreen~=fullscreen then return false end
+    if app.visible~=nil and app.visible~=visible then return false end
     return true
   end
-  local role = window.subrole and window:subrole() or '?'
+  local role = window.subrole and window:subrole() or ''
   local title = window:title()
   local fullscreen = window:isFullScreen()
   local visible = window:isVisible()
-
   local app=self.apps[true]
-  if app==false then return false
-  elseif app and not allowWindow(app,role,title,fullscreen,visible) then return false end
+  if app==false then log.vf('%s rejected: override reject',role)return false
+  elseif app then
+    local r=allowWindow(app,role,title,fullscreen,visible)
+    log.vf('%s %s: override filter',role,r and 'allowed' or 'rejected')
+    return r
+  end
   appname = appname or window:application():title()
   app=self.apps[appname]
-  if app==false then return false
-  elseif app and not allowWindow(app,role,title,fullscreen,visible) then return false end
-  app=self.apps[false]
-  if app==false then return false
-  elseif app and not allowWindow(app,role,title,fullscreen,visible) then
-    return false
+  if app==false then log.vf('%s (%s) rejected: app reject',role,appname) return false
+  elseif app then
+    local r=allowWindow(app,role,title,fullscreen,visible)
+    log.vf('%s (%s) %s: app filter',role,appname,r and 'allowed' or 'rejected')
+    return r
   end
+  app=self.apps[false]
+  if app==false then log.vf('%s (%s) rejected: default reject',role,appname) return false
+  elseif app then
+    local r=allowWindow(app,role,title,fullscreen,visible)
+    log.vf('%s (%s) %s: default filter',role,appname,r and 'allowed' or 'rejected')
+    return r
+  end
+  log.vf('%s (%s) accepted (no rules)',role,appname)
   return true
 end
 
@@ -114,7 +123,7 @@ end
 ---  * appname - app name as per `hs.application:title()`
 ---
 --- Returns:
----  * `false` if the app is outright rejected by the windowfilter; `true` otherwise
+---  * `false` if the app is rejected by the windowfilter; `true` otherwise
 
 function wf:isAppAllowed(appname)
   return self.apps[appname]~=false
@@ -138,18 +147,21 @@ function wf:filterWindows(windows)
   return res
 end
 
---- hs.windowfilter:rejectApp(appname)
+--- hs.windowfilter:rejectApp(appname) -> hs.windowfilter
 --- Method
 --- Sets the windowfilter to outright reject any windows belonging to a specific app
 ---
 --- Parameters:
 ---  * appname - app name as per `hs.application:title()`
+---
+--- Returns:
+---  * the `hs.windowfilter` object for method chaining
 
 function wf:rejectApp(appname)
-  self:setAppFilter(appname,false)
+  return self:setAppFilter(appname,false)
 end
 
---- hs.window:setDefaultFilter(allowTitles, rejectTitles, allowRoles, fullscreen, visible)
+--- hs.window:setDefaultFilter(allowTitles, rejectTitles, allowRoles, fullscreen, visible) -> hs.windowfilter
 --- Method
 --- Set the default filtering rules to be used for apps without app-specific rules
 ---
@@ -158,15 +170,18 @@ end
 ---                - if a string or table of strings, only allow windows whose title matches (one of) the pattern(s) as per `string.match`
 ---  * rejectTitles - string or table of strings, reject windwos whose titles matches (one of) the pattern(s) as per `string.match`
 ---  * allowRoles - string or table of strings, only allow these window roles as per `hs.window:subrole()`
----  * fullscreen - if `true`, only allow fullscreen windows; if `false`, reject fullscreen windows; if `nil`, allow fullscreen and nonfullscreen windows
----  * visible - if `true`, only allow visible windows; if `false`, reject visible windows; if `nil`, allow visible and invisible windows
+---  * fullscreen - if `true`, only allow fullscreen windows; if `false`, reject fullscreen windows
+---  * visible - if `true`, only allow visible windows; if `false`, reject visible windows
+---
+--- Returns:
+---  * the `hs.windowfilter` object for method chaining
 ---
 --- Notes:
 ---  * if any parameter is `nil` the relevant rule is ignored
 function wf:setDefaultFilter(...)
-  self:setAppFilter(false,...)
+  return self:setAppFilter(false,...)
 end
---- hs.window:setOverrideFilter(allowTitles, rejectTitles, allowRoles, fullscreen, visible)
+--- hs.window:setOverrideFilter(allowTitles, rejectTitles, allowRoles, fullscreen, visible) -> hs.windowfilter
 --- Method
 --- Set overriding filtering rules that will be applied for all apps before any app-specific rules
 ---
@@ -175,16 +190,19 @@ end
 ---                - if a string or table of strings, only allow windows whose title matches (one of) the pattern(s) as per `string.match`
 ---  * rejectTitles - string or table of strings, reject windwos whose titles matches (one of) the pattern(s) as per `string.match`
 ---  * allowRoles - string or table of strings, only allow these window roles as per `hs.window:subrole()`
----  * fullscreen - if `true`, only allow fullscreen windows; if `false`, reject fullscreen windows; if `nil`, allow fullscreen and nonfullscreen windows
----  * visible - if `true`, only allow visible windows; if `false`, reject visible windows; if `nil`, allow visible and invisible windows
+---  * fullscreen - if `true`, only allow fullscreen windows; if `false`, reject fullscreen windows
+---  * visible - if `true`, only allow visible windows; if `false`, reject visible windows
+---
+--- Returns:
+---  * the `hs.windowfilter` object for method chaining
 ---
 --- Notes:
 ---  * if any parameter is `nil` the relevant rule is ignored
 function wf:setOverrideFilter(...)
-  self:setAppFilter(true,...)
+  return self:setAppFilter(true,...)
 end
 
---- hs.window:setAppFilter(appname, allowTitles, rejectTitles, allowRoles, fullscreen, visible)
+--- hs.window:setAppFilter(appname, allowTitles, rejectTitles, allowRoles, fullscreen, visible) -> hs.windowfilter
 --- Method
 --- Sets the filtering rules for the windows of a specific app
 ---
@@ -197,11 +215,14 @@ end
 ---  * fullscreen - if `true`, only allow fullscreen windows; if `false`, reject fullscreen windows
 ---  * visible - if `true`, only allow visible windows; if `false`, reject visible windows
 ---
+--- Returns:
+---  * the `hs.windowfilter` object for method chaining
+---
 --- Notes:
 ---  * if any parameter (other than `appname`) is `nil` the relevant rule is ignored
 function wf:setAppFilter(appname,allowTitles,rejectTitles,allowRoles,fullscreen,visible)
   if type(appname)~='string' and type(appname)~='boolean' then error('appname must be a string or boolean',2) end
-  if allowTitles==false then self.apps[appname]=false return end
+  if allowTitles==false then self.apps[appname]=false return self end
 
   local app = self.apps[appname] or {}
   if allowTitles~=nil then
@@ -227,6 +248,7 @@ function wf:setAppFilter(appname,allowTitles,rejectTitles,allowRoles,fullscreen,
   if fullscreen~=nil then app.fullscreen=fullscreen end
   if visible~=nil then app.visible=visible end
   self.apps[appname]=app
+  return self
 end
 
 
@@ -235,11 +257,12 @@ end
 --- Creates a new hs.windowfilter instance
 ---
 --- Parameters:
----  * fn - if `true`, returns a copy of the default windowfilter that you can further restrict or expand
----       - if `nil`, returns an empty windowfilter that allows every window
+---  * fn - if `nil`, returns a copy of the default windowfilter that you can further restrict or expand
+---       - if `true`, returns an empty windowfilter that allows every window
+---       - if `false`, returns a windowfilter with a default rule to reject every window
 ---       - otherwise it must be a function that accepts a `hs.window` and returns `true` if the window is allowed or `false` otherwise; this way you can define a custom windowfilter
----  * includeFullscreen - only valid when `fn` is true; if true fullscreen windows will be accepted
----  * includeInvisible - only valid when `fn` is true; if true invisible windows will be accepted
+---  * includeFullscreen - only valid when `fn` is nil; if true fullscreen windows will be accepted
+---  * includeInvisible - only valid when `fn` is nil; if true invisible windows will be accepted
 ---
 --- Returns:
 ---  * a new windowfilter instance
@@ -259,7 +282,7 @@ function windowfilter.new(fn,includeFullscreen,includeInvisible)
     }
   end
   local o = setmetatable({apps={}},{__index=wf})
-  if fn==true then
+  if fn==nil then
     for _,list in ipairs{SKIP_APPS_NO_PID,SKIP_APPS_NO_WINDOWS,SKIP_APPS_TRANSIENT_WINDOWS} do
       for _,appname in ipairs(list) do
         o:rejectApp(appname)
@@ -274,10 +297,11 @@ function windowfilter.new(fn,includeFullscreen,includeInvisible)
     local fs,vis=false,true
     if includeFullscreen then fs=nil end
     if includeInvisible then vis=nil end
-    o:setOverrideFilter(nil,nil,nil,fs,vis)
-    o:setDefaultFilter(nil,nil,ALLOWED_WINDOW_ROLES)--,ALLOWED_WINDOW_ROLES_INVISIBLE)
+    --    o:setOverrideFilter(nil,nil,nil,fs,vis)
+    o:setDefaultFilter(nil,nil,ALLOWED_WINDOW_ROLES,fs,vis)
     return o
-  elseif fn==nil then return o
+  elseif fn==true then return o
+  elseif fn==false then o:setDefaultFilter(false) return o
   else error('fn must be nil, true or a function',2) end
 end
 
