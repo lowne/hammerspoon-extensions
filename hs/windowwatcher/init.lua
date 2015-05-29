@@ -118,8 +118,13 @@ function Window:unfocused()
   self:emitEvent(windowwatcher.windowUnfocused)
 end
 
+function Window:setWWatchers()
+  self.wws={} -- reset in case any filters changed
+  for ww in pairs(watchers) do
+    self:setWWatcher(ww) -- recheck the filter for all watchers
+  end
+end
 function Window:setWWatcher(ww)
-  self.wws[ww]=nil --reset in case it's now filtered after title change
   if ww.windowfilter:isWindowAllowed(self.window,self.app.name) then
     self.wws[ww]=true
   end
@@ -155,8 +160,9 @@ function Window:doMoved()
   local fs = self.window:isFullScreen()
   local oldfs = self.isFullscreen or false
   if self.isFullscreen~=fs then
-    self:emitEvent(fs and windowwatcher.windowFullscreened or windowwatcher.windowUnfullscreened)
     self.isFullscreen=fs
+    self:setWWatchers()
+    self:emitEvent(fs and windowwatcher.windowFullscreened or windowwatcher.windowUnfullscreened)
   end
 end
 local TITLECHANGED_DELAY=0.5
@@ -164,20 +170,20 @@ function Window:titleChanged()
   self.titleDelayed=delayed.doAfter(self.titleDelayed,TITLECHANGED_DELAY,Window.doTitleChanged,self)
 end
 function Window:doTitleChanged()
-  for ww in pairs(watchers) do
-    self:setWWatcher(ww) -- recheck the filter for all watchers
-  end
+  self:setWWatchers()
   self:emitEvent(windowwatcher.windowTitleChanged)
 end
 function Window:hidden()
   if self.isHidden then return log.df('Window %d (%s) already hidden',self.id,self.app.name) end
   self:unfocused()
   self.isHidden = true
+  self:setWWatchers()
   self:emitEvent(windowwatcher.windowHidden)
 end
 function Window:shown()
   if not self.isHidden then return log.df('Window %d (%s) already shown',self.id,self.app.name) end
   self.isHidden = nil
+  self:setWWatchers()
   self:emitEvent(windowwatcher.windowShown)
   --  if hswin.focusedWindow():id()==self.id then self:focused() end
 end
