@@ -59,7 +59,7 @@ local APPS_SKIP_NO_TITLE = {
 }
 
 local ALLOWED_NONSTANDARD_WINDOW_ROLES = {'AXStandardWindow','AXDialog','AXFloatingWindow','AXSystemDialog'}
-local ALLOWED_WINDOW_ROLES = {'AXStandardWindow'}
+local ALLOWED_WINDOW_ROLES = {'AXStandardWindow','AXDialog','AXSystemDialog'}
 
 local wf={} -- class
 
@@ -91,9 +91,9 @@ function wf:isWindowAllowed(window,appname)--appname,windowrole,windowtitle)
     return true
   end
   local role = window.subrole and window:subrole() or ''
-  local title = window:title()
-  local fullscreen = window:isFullScreen()
-  local visible = window:isVisible()
+  local title = window:title() or ''
+  local fullscreen = window:isFullScreen() or false
+  local visible = window:isVisible() or false
   local app=self.apps[true]
   if app==false then log.vf('%s rejected: override reject',role)return false
   elseif app then
@@ -318,6 +318,7 @@ function windowfilter.new(fn,includeFullscreen,includeInvisible)
       for _,appname in ipairs(APPS_SKIP_NO_TITLE) do
         o:setAppFilter(appname,1)
       end
+      o:setAppFilter('Hammerspoon',{'Preferences','Console'})
     end
     local fs,vis=false,true
     if includeFullscreen then fs=nil end

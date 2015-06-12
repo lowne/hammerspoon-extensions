@@ -1,4 +1,4 @@
---- === hs.windowlayout ===
+--- === hs.windowlayouts ===
 ---
 --- Save and restore window layouts; and automatically keep track and apply layouts across different screen sets/geometries
 
@@ -12,8 +12,8 @@ local application = hs.application
 --local delayed = hs.delayed
 local log = hs.logger.new('wlayouts','info')
 
-local windowlayout = {} -- class and module
-windowlayout.setLogLevel=function(lvl) log.setLogLevel(lvl)end
+local windowlayouts = {} -- class and module
+windowlayouts.setLogLevel=function(lvl) log.setLogLevel(lvl)end
 
 local instances = {} -- started/running instances
 
@@ -38,26 +38,26 @@ local function windowcomp(w1,w2)
   if not w2 then return true end
   local diff = w1.time-w2.time
   if diff>5 or diff<-5 then return w1.time<w2.time end
-  return w1.id<w2.id
+  return (w1.id or 0)<(w2.id or 0)
 end
 
 
-function windowlayout:actualSave()
-  if self.duringAutolayout then self.saveDelayed=hs.delayed.doAfter(self.saveDelayed,5,windowlayout.actualSave,self)
+function windowlayouts:actualSave()
+  if self.duringAutolayout then self.saveDelayed=hs.delayed.doAfter(self.saveDelayed,5,windowlayouts.actualSave,self)
   else
     log.i('automode layout saved')
     hs.settings.set(KEY_LAYOUTS, self.layouts)
   end
 end
-function windowlayout:saveSettings()
-  self.saveDelayed=hs.delayed.doAfter(self.saveDelayed,10,windowlayout.actualSave,self)
+function windowlayouts:saveSettings()
+  self.saveDelayed=hs.delayed.doAfter(self.saveDelayed,1,windowlayouts.actualSave,self)
 end
 
 local function frameEqual(frame,savedwin)
   return frame.x==savedwin.x and frame.y==savedwin.y and frame.w==savedwin.w and frame.h==savedwin.h
 end
 
-function windowlayout:loadSettings()
+function windowlayouts:loadSettings()
   log.i('automode layout loaded')
   self.layouts = hs.settings.get(KEY_LAYOUTS) or {}
 end
@@ -66,7 +66,7 @@ end
 
 
 ---returns an existing table for the newly created window, or nil if not found
-function windowlayout:findMatchingWindow(appname,win,role,title)
+function windowlayouts:findMatchingWindow(appname,win,role,title)
   local frame = win:frame()
   local savedWindows = self.windows[appname]
   local found
@@ -108,22 +108,24 @@ end
 
 
 local function getSavedWindow(t,id)
+  if not t then return end
   for _,w in ipairs(t) do
     if w.id==id then return w end
   end
 end
 
-function windowlayout:windowMoved(win,appname)
+function windowlayouts:windowMoved(win,appname)
   if instances[self]~=true then return end -- skip when paused
-  if self.automode and self.duringautoLayout then return end -- skip during autolayout phase
+  if self.automode and self.duringAutoLayout then log.v('auto mode layout in progress') return end -- skip during autolayout phase
   local f = win:frame()
   local t = getSavedWindow(self.windows[appname],win:id())
+  if not t then log.ef('%s %d (%s) missing!',win:subrole(),win:id(),appname) return end
   t.x=f.x t.y=f.y t.w=f.w t.h=f.h
   log.df('%s (%s) -> %d,%d [%dx%d]',t.role,appname,t.x,t.y,t.w,t.h)
   if self.automode then self:saveSettings() end
 end
 
-function windowlayout:windowShown(win,appname)
+function windowlayouts:windowShown(win,appname)
   if instances[self]~=true then return end -- skip when paused
   self.windows[appname]=self.windows[appname] or {}
   local role = win:subrole()
@@ -154,7 +156,7 @@ function windowlayout:windowShown(win,appname)
   end
 end
 
-function windowlayout:windowHidden(win,appname)
+function windowlayouts:windowHidden(win,appname)
   local t = getSavedWindow(self.windows[appname],win:id())
   if t then
     log.f('deregistered %s: %s',t.role,t.title)
@@ -167,7 +169,7 @@ end
 --TODO
 local spacesDone = {}
 --- tell us from outside that we switched to another space, and should refresh windows
-function windowlayout.switchedToSpace(space)
+function windowlayouts.switchedToSpace(space)
   if not spacesDone[space] then
     log.i('Entered space #'..space..', refreshing all windows')
     for wl in pairs(instances) do
@@ -183,7 +185,7 @@ function windowlayout.switchedToSpace(space)
   end
 end
 
-function windowlayout:removeIDs()
+function windowlayouts:removeIDs()
   log.d('remove all IDs')
   for layoutname,layout in pairs(self.layouts) do
     for appname,windows in pairs(layout) do
@@ -203,7 +205,7 @@ local screenGeometry
 --- Returns:
 ---   * a table containing the current layout for the instance windows; you can save it with `hs.settings.set` for later use
 ---   * a string describing the current screen geometry; if relevant you can use it as part of the key name when saving with `hs.settings.set`
-function windowlayout:getLayout()
+function windowlayouts:getLayout()
   -- get the current layout snapshot
   self.layouts={} self:refreshWindows()
   return self.windows, screenGeometry
@@ -211,7 +213,7 @@ end
 
 --- Notes:
 ---  * This won't work for instances that have been started in auto mode
-function windowlayout:applyLayout(layout)
+function windowlayouts:applyLayout(layout)
   if self.automode then log.e('Cannot manually apply a layout in auto mode') return end
   if type(layout)~='table' then error('layout must be a table',2) return end
 
@@ -222,7 +224,7 @@ function windowlayout:applyLayout(layout)
   self.automode = nil
 end
 
-function windowlayout:refreshWindows()
+function windowlayouts:refreshWindows()
   log.i('Refresh windows, apply layout')
   self.duringAutoLayout = true
   self.layouts[screenGeometry] = self.layouts[screenGeometry] or {}
@@ -252,6 +254,7 @@ end
 
 local enumScreensDelayed
 local function screensChanged()
+  log.i('Detecting screens')
   for wl in pairs(instances) do
     wl.duringAutoLayout = true
   end
@@ -292,7 +295,7 @@ local function stopGlobal()
   powerWatcher:stop()
   screenWatcher:stop()
 end
-function windowlayout:start()
+function windowlayouts:start()
   if instances[self] then log.i('instance was already started, ignoring') return end
   log.i('start')
   self:removeIDs()
@@ -303,7 +306,7 @@ function windowlayout:start()
   return self
 end
 
-function windowlayout:startAutoMode()
+function windowlayouts:startAutoMode()
   if instances[self] then log.i('instance was already started, ignoring') return end
   -- only one automode instance allowed
   for wl in pairs(instances) do
@@ -317,7 +320,7 @@ function windowlayout:startAutoMode()
     :subscribe(hs.windowwatcher.windowMoved,function(w,a)self:windowMoved(w,a)end)
   return self:start()
 end
-function windowlayout:stop()
+function windowlayouts:stop()
   log.i('stop')
   instances[self] = nil
   self.automode = nil
@@ -326,9 +329,9 @@ function windowlayout:stop()
   return self
 end
 
-function windowlayout:pause() instances[self]=false log.i('autolayout paused')end
-function windowlayout:resume() instances[self]=true log.i('autolayout resumed') self:removeIDs() self:refreshWindows() end
-function windowlayout:resetAll()
+function windowlayouts:pause() instances[self]=false log.i('autolayout paused')end
+function windowlayouts:resume() instances[self]=true log.i('autolayout resumed') self:removeIDs() self:refreshWindows() end
+function windowlayouts:resetAll()
   log.w('Autolayout reset')
   self.layouts = {}
   self:actualSave()
@@ -349,14 +352,23 @@ end
 --- Returns:
 ---  * a new windowlayout instance
 
-windowlayout.new = function(windowfilter,...)
-  local o = setmetatable({layouts={}},{__index=windowlayout})
-  o.ww=hs.windowwatcher.new(windowfilter,...)
+windowlayouts.new = function(windowfilter,...)
+  local o = setmetatable({layouts={}},{__index=windowlayouts})
+  if windowfilter==nil then
+    local allnil=true
+    for i=1,select('#',...) do
+      if select(i,...)~=nil then allnil=false break end
+    end
+    if allnil then o.ww=hs.windowwatcher.default end
+  end
+  if not o.ww then
+    o.ww=hs.windowwatcher.new(windowfilter,...)
+  end
   --    :subscribe(hs.windowwatcher.windowShown,function(w,a)windowlayout.windowShown(o,w,a)end)
   --    :subscribe(hs.windowwatcher.windowHidden,function(w,a)windowlayout.windowHidden(o,w,a)end)
   --    :subscribe(hs.windowwatcher.windowMoved,function(w,a)windowlayout.windowMoved(o,w,a)end)
   return o
 end
 
-return windowlayout
+return windowlayouts
 

@@ -96,11 +96,15 @@ local global={} -- global state
 local Window={} -- class
 
 function Window:emitEvent(event)
-  log.f('Emitting %s %d (%s)',event,self.id,self.app.name)
+  local logged
   for ww in pairs(self.wws) do
     if watchers[ww] then -- skip if wwatcher was stopped
       local fn=ww.events[event]
-      if fn then fn(self.window,self.app.name) end
+      if fn then
+        if not logged then log.df('Emitting %s %d (%s)',event,self.id,self.app.name) end
+        fn(self.window,self.app.name)
+        logged=true
+      end
     end
   end
 end
@@ -593,5 +597,6 @@ function windowwatcher.new(windowfilter,...)
   return o
 end
 
+windowwatcher.default = windowwatcher.new()
 windowwatcher.setLogLevel=log.setLogLevel
 return windowwatcher

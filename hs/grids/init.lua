@@ -60,6 +60,7 @@ function grids.setGrid(screen,grid)
   grid.w=min(grid.w,#HINTS[1]) grid.h=min(grid.h,#HINTS)
   gridSizes[key]=grid
   log.f('Grid for %s set to %d by %d',key,grid.w,grid.h)
+  return grids
 end
 local elements = {} -- rects
 
@@ -90,7 +91,7 @@ local function setGrids()
       up=getScreenKey(screen:toNorth() or screen),
       right=getScreenKey(screen:toEast() or screen),
       down=getScreenKey(screen:toSouth() or screen),
-      screen=screen,
+      screen=screen, frame=frame,
       howto={rect=howtorect,text=howtotext},
       hints={}}
     local ix=0
@@ -117,7 +118,7 @@ local function setGrids()
   setGridsDelayed=nil
 end
 
-local resizing -- modal hotkey
+local resizing-- modal hotkey
 local function startSetGrids()
   if resizing then resizing:exit() end
   setGridsDelayed = delayed.doAfter(setGridsDelayed, 5, setGrids)
@@ -131,7 +132,7 @@ local powerWatcher = hs.caffeinate.watcher.new(function(ev)
 end)
 
 local function showGrid(screen)
-  if not screen or not elements[screen] then log.e('Cannot obtain current screen') return end
+  if not screen or not elements[screen] then log.e('Cannot obtain current screen: '..screen) return end
   local e = elements[screen].hints
   for _,elem in pairs(e) do elem.rect:show() elem.text:show() end
   elements[screen].howto.rect:show() elements[screen].howto.text:show()
@@ -143,10 +144,15 @@ local function hideGrid(screen)
   for _,elem in pairs(e) do elem.rect:hide() elem.text:hide() end
 end
 
-function grids.bind(modifier,key,message,duration)
-  if resizing then resizing:exit() end
+--function grids.bind(modifier,key,message,duration)
+function grids.show()
+  resizing:exit()
+  resizing:enter()
+end
+
+local function _start()
   setGrids()
-  resizing = hs.hotkey.modal.new(modifier,key)
+  resizing=hs.hotkey.modal.new()
   local function showHighlight()
     if highlight then highlight:delete() end
     highlight = dr.rectangle(currentWindow:frame())
@@ -155,15 +161,14 @@ function grids.bind(modifier,key,message,duration)
     highlight:show()
   end
   function resizing:entered()
-    --TODO draw instructions
-    if message then hs.alert(message,duration or 1) end
+    --    if message then hs.alert(message,duration or 1) end
     currentWindow=hs.window.focusedWindow()
     if not currentWindow then log.w('Cannot get current window, aborting') resizing:exit() return end
     log.df('Start moving %s [%s]',currentWindow:subrole(),currentWindow:application():title())
+
     --  if window:isFullScreen() then resizing:exit() alert('(')return end
     --TODO check fullscreen
     currentScreen = getScreenKey(currentWindow:screen())
-    print(currentScreen)
     showHighlight()
     showGrid(currentScreen)
   end
@@ -181,8 +186,11 @@ function grids.bind(modifier,key,message,duration)
   end
   resizing:bind({},'escape',function()log.d('abort move')resizing:exit()end)
   resizing:bind({},'space',function()
+    --    local wasfs=currentWindow:isFullScreen()
     log.d('toggle fullscreen')currentWindow:toggleFullScreen()
-    if currentWindow:isFullScreen() then resizing:exit() end
+    if currentWindow:isFullScreen() then resizing:exit()
+      --    elseif not wasfs then currentWindow:setFrame(currentWindow:screen():frame(),0) resizing:exit()
+    end
   end)
   for _,dir in ipairs({'left','right','up','down'}) do
     resizing:bind({},dir,function()
@@ -215,15 +223,14 @@ function grids.bind(modifier,key,message,duration)
       resizing:bind({},c,function()hintPressed(c) end)
     end
   end
-  grids.start()
 end
 
 function grids.start()
-  screenWatcher:start() powerWatcher:start()
+  screenWatcher:start() powerWatcher:start() _start()
 end
 
 function grids.stop()
-  if resizing then resizing:exit() end
+  resizing:exit()
   screenWatcher:stop() powerWatcher:stop()
 end
 
