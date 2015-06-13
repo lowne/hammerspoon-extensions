@@ -3,9 +3,9 @@
 --- Modal hotkey window resize on per-screen grids
 
 local dr,delayed = hs.drawing,hs.delayed
-local ipairs,pairs,min,max,floor = ipairs,pairs,math.min,math.max,math.floor
+local ipairs,pairs,min,max,floor,fmod = ipairs,pairs,math.min,math.max,math.floor,math.fmod
 local sformat,smatch,type,tonumber = string.format,string.match,type,tonumber
-local log = hs.logger.new('grids',5)
+local log = hs.logger.new('grids',4)
 local grids = {setLogLevel = function(lvl) log.setLogLevel(lvl)end} -- module
 
 local screens, currentScreen, currentWindow, highlight = {}
@@ -70,9 +70,10 @@ local function getScreenKey(screen)
 end
 
 
-local setGridsDelayed
-local function setGrids()
-  screens = hs.screen.allScreens()
+local resizing-- modal hotkey
+local function setGrids(screens)
+  if resizing then resizing:exit() end
+  --  screens = hs.screen.allScreens()
   for i,screen in ipairs(screens) do
     local key = getScreenKey(screen)
     local frame = screen:frame()
@@ -82,7 +83,7 @@ local function setGrids()
     log.f('Screen #%d (%s) -> grid %d by %d (%dx%d cells)',i,key,gridsize.w,gridsize.h,xstep,ystep)
     local htf={w=500,h=100}
     htf.x=frame.x+frame.w/2-htf.w/2 htf.y=frame.y+frame.h/2-htf.h/2
-    if math.fmod(gridsize.h,2)==1 then htf.y=htf.y-ystep/2 end
+    if fmod(gridsize.h,2)==1 then htf.y=htf.y-ystep/2 end
     local howtorect=dr.rectangle(htf)
     howtorect:setFill(true) howtorect:setFillColor(COLOR_DARKOVERLAY) howtorect:setStrokeWidth(5)
     local howtotext=dr.text(htf,'    ←→↑↓:select screen\n  space:fullscreen esc:exit')
@@ -115,21 +116,9 @@ local function setGrids()
       end
     end
   end
-  setGridsDelayed=nil
 end
 
-local resizing-- modal hotkey
-local function startSetGrids()
-  if resizing then resizing:exit() end
-  setGridsDelayed = delayed.doAfter(setGridsDelayed, 5, setGrids)
-end
 
-local screenWatcher = hs.screen.watcher.new(startSetGrids)
-local powerWatcher = hs.caffeinate.watcher.new(function(ev)
-  if ev==hs.caffeinate.watcher.screensDidWake then
-    startSetGrids()
-  end
-end)
 
 local function showGrid(screen)
   if not screen or not elements[screen] then log.e('Cannot obtain current screen: '..screen) return end
@@ -138,7 +127,7 @@ local function showGrid(screen)
   elements[screen].howto.rect:show() elements[screen].howto.text:show()
 end
 local function hideGrid(screen)
-  if not screen or not elements[screen] then log.e('Cannot obtain current screen') return end
+  if not screen or not elements[screen] then --[[log.e('Cannot obtain current screen') --]] return end
   elements[screen].howto.rect:hide() elements[screen].howto.text:hide()
   local e = elements[screen].hints
   for _,elem in pairs(e) do elem.rect:hide() elem.text:hide() end
@@ -151,7 +140,7 @@ function grids.show()
 end
 
 local function _start()
-  setGrids()
+  --  setGrids()
   resizing=hs.hotkey.modal.new()
   local function showHighlight()
     if highlight then highlight:delete() end
@@ -226,12 +215,13 @@ local function _start()
 end
 
 function grids.start()
-  screenWatcher:start() powerWatcher:start() _start()
+  hs.screenwatcher.subscribe(setGrids)
+  _start()
 end
 
 function grids.stop()
-  resizing:exit()
-  screenWatcher:stop() powerWatcher:stop()
+  if resizing then resizing:exit() end
+  hs.screenwatcher.unsubscribe(setGrids)
 end
 
 return grids
