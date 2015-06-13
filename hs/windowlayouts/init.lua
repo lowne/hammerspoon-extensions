@@ -6,10 +6,7 @@
 --TODO constructors with a list of allowed appnames all the way down (watcher,filter)
 
 local ipairs,pairs,tinsert,tsort,ssub,time,sformat=ipairs,pairs,table.insert,table.sort,string.sub,os.time,string.format
-local application = hs.application
---local appwatcher = hs.application.watcher
---local uiwatcher = hs.uielement.watcher
---local delayed = hs.delayed
+local doAfter=hs.delayed.doAfter
 local log = hs.logger.new('wlayouts','info')
 
 local windowlayouts = {} -- class and module
@@ -43,14 +40,14 @@ end
 
 
 function windowlayouts:actualSave()
-  if self.duringAutolayout then self.saveDelayed=hs.delayed.doAfter(self.saveDelayed,5,windowlayouts.actualSave,self)
+  if self.duringAutolayout then self.saveDelayed=doAfter(self.saveDelayed,5,windowlayouts.actualSave,self)
   else
     log.i('automode layout saved')
     hs.settings.set(KEY_LAYOUTS, self.layouts)
   end
 end
 function windowlayouts:saveSettings()
-  self.saveDelayed=hs.delayed.doAfter(self.saveDelayed,1,windowlayouts.actualSave,self)
+  self.saveDelayed=doAfter(self.saveDelayed,1,windowlayouts.actualSave,self)
 end
 
 local function frameEqual(frame,savedwin)
@@ -233,55 +230,38 @@ function windowlayouts:refreshWindows()
   for _,w in ipairs(windows) do
     self:windowShown(w,w:application():title())
   end
-  self.layoutDelayed=hs.delayed.doAfter(self.layoutDelayed,5,function()
+  self.layoutDelayed=doAfter(self.layoutDelayed,5,function()
     self.duringAutoLayout = nil
     log.i('Apply layout finished')
   end)
 end
 
-local function enumScreens()
+local function enumScreens(screens)
   local function rect2str(rect)
-    return sformat('[%d,%d-%dx%d]',rect.x,rect.y,rect.w,rect.h)
+    return sformat('[%d,%d %dx%d]',rect.x,rect.y,rect.w,rect.h)
   end
-  local screens = hs.screen.allScreens()
   screenGeometry = ''
   for _,screen in ipairs(screens) do
     screenGeometry = screenGeometry..rect2str(screen:fullFrame())
   end
   log.f('Enumerated screens: %s',screenGeometry)
+  for wl in pairs(instances) do wl:refreshWindows() end
 end
 
 
-local enumScreensDelayed
 local function screensChanged()
-  log.i('Detecting screens')
+  log.d('Screens changed')
   for wl in pairs(instances) do
     wl.duringAutoLayout = true
   end
-  enumScreensDelayed = hs.delayed.doAfter(enumScreensDelayed, 8, function()
-    enumScreens()
-    for wl in pairs(instances) do wl:refreshWindows() end
-  end)
 end
 
-
--- screens watcher
-local screenWatcher = hs.screen.watcher.new(screensChanged)
-
--- powerstate watcher
-local powerWatcher = hs.caffeinate.watcher.new(function(ev)
-  if ev==hs.caffeinate.watcher.screensDidWake then
-    screensChanged()
-  end
-end)
 
 local function startGlobal()
   if globalIsRunning then return end
   globalIsRunning = true
   log.i('global start')
-  enumScreens()
-  powerWatcher:start()
-  screenWatcher:start()
+  hs.screenwatcher.subscribe(enumScreens,screensChanged)
 end
 
 local function stopGlobal()
@@ -292,15 +272,15 @@ local function stopGlobal()
   --  end
   globalIsRunning = nil
   log.i('global stop')
-  powerWatcher:stop()
-  screenWatcher:stop()
+  hs.screenwatcher.unsubscribe(enumScreens)
+  hs.screenwatcher.unsubscribe(screensChanged)
 end
 function windowlayouts:start()
   if instances[self] then log.i('instance was already started, ignoring') return end
   log.i('start')
   self:removeIDs()
-  instances[self] = true
   startGlobal()
+  instances[self] = true
   self.ww:start()
   self:refreshWindows()
   return self

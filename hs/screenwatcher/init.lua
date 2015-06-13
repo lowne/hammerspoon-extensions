@@ -64,8 +64,4 @@ function screenwatcher.unsubscribe(fn)
   end
 end
 
-
-
-
-
 return screenwatcher
