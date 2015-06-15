@@ -154,6 +154,7 @@ function windowlayouts:windowShown(win,appname)
 end
 
 function windowlayouts:windowHidden(win,appname)
+  if not self.windows then return end -- FIXME crashes sometimes, but it never should
   local t = getSavedWindow(self.windows[appname],win:id())
   if t then
     log.f('deregistered %s: %s',t.role,t.title)
@@ -261,7 +262,7 @@ local function startGlobal()
   if globalIsRunning then return end
   globalIsRunning = true
   log.i('global start')
-  hs.screenwatcher.subscribe(enumScreens,screensChanged)
+  hs.screenwatcher.subscribe(screensChanged,enumScreens)
 end
 
 local function stopGlobal()
@@ -272,19 +273,20 @@ local function stopGlobal()
   --  end
   globalIsRunning = nil
   log.i('global stop')
-  hs.screenwatcher.unsubscribe(enumScreens)
-  hs.screenwatcher.unsubscribe(screensChanged)
+  hs.screenwatcher.unsubscribe({enumScreens,screensChanged})
 end
 function windowlayouts:start()
   if instances[self] then log.i('instance was already started, ignoring') return end
+  startGlobal()
+  if not screenGeometry then doAfter(1,windowlayouts.start,self) return self end
   log.i('start')
   self:removeIDs()
-  startGlobal()
   instances[self] = true
   self.ww:start()
   self:refreshWindows()
   return self
 end
+
 
 function windowlayouts:startAutoMode()
   if instances[self] then log.i('instance was already started, ignoring') return end
@@ -295,16 +297,21 @@ function windowlayouts:startAutoMode()
   log.i('start auto mode')
   self.automode = true
   self:loadSettings()
-  self.ww:subscribe(hs.windowwatcher.windowShown,function(w,a)self:windowShown(w,a)end)
-    :subscribe(hs.windowwatcher.windowHidden,function(w,a)self:windowHidden(w,a)end)
-    :subscribe(hs.windowwatcher.windowMoved,function(w,a)self:windowMoved(w,a)end)
+  self.wwsubs={
+    function(w,a)self:windowShown(w,a)end,
+    function(w,a)self:windowHidden(w,a)end,
+    function(w,a)self:windowMoved(w,a)end
+  }
+  self.ww:subscribe(hs.windowwatcher.windowShown,self.wwsubs[1])
+    :subscribe(hs.windowwatcher.windowHidden,self.wwsubs[2])
+    :subscribe(hs.windowwatcher.windowMoved,self.wwsubs[3])
   return self:start()
 end
 function windowlayouts:stop()
   log.i('stop')
   instances[self] = nil
   self.automode = nil
-  self.ww:unsubscribeAll():stop()
+  self.ww:unsubscribe(self.wwsubs):stop()
   stopGlobal()
   return self
 end
@@ -319,7 +326,7 @@ function windowlayouts:resetAll()
   -- TODO
 end
 
---- hs.windowlayout.new(windowfilter,...) -> hs.windowlayout
+--- hs.windowlayouts.new(windowfilter,...) -> hs.windowlayout
 --- Function
 --- Creates a new windowlayout instance. The windowlayout uses a `hs.windowfilter` object to only affect specific windows
 ---
@@ -339,7 +346,10 @@ windowlayouts.new = function(windowfilter,...)
     for i=1,select('#',...) do
       if select(i,...)~=nil then allnil=false break end
     end
-    if allnil then o.ww=hs.windowwatcher.default end
+    if allnil then
+      log.i('using default windowfilter')
+      o.ww=hs.windowwatcher.default
+    end
   end
   if not o.ww then
     o.ww=hs.windowwatcher.new(windowfilter,...)

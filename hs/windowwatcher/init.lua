@@ -19,7 +19,7 @@
 --   (e.g. if she knows all she cares about is Safari)
 
 hs = require'hs._inject_extensions'
-local next,pairs,ipairs,tsort=next,pairs,ipairs,table.sort
+local type,next,pairs,ipairs,tsort=type,next,pairs,ipairs,table.sort
 local setmetatable=setmetatable
 local log = hs.logger.new('wwatcher')
 local delayed = hs.delayed
@@ -99,11 +99,12 @@ function Window:emitEvent(event)
   local logged
   for ww in pairs(self.wws) do
     if watchers[ww] then -- skip if wwatcher was stopped
-      local fn=ww.events[event]
-      if fn then
-        if not logged then log.df('Emitting %s %d (%s)',event,self.id,self.app.name) end
-        fn(self.window,self.app.name)
-        logged=true
+      local fns=ww.events[event]
+      if fns then
+        if not logged then log.df('Emitting %s %d (%s)',event,self.id,self.app.name) logged=true end
+        for fn in pairs(fns) do
+          fn(self.window,self.app.name)
+        end
       end
     end
   end
@@ -448,19 +449,39 @@ local function stopGlobalWatcher()
   log.f('Unregistered %d apps',totalApps)
 end
 
-local function subscribe(self,event,fn)
-  if not events[event] then error('invalid event: '..event,2) end
-  if type(fn)~='function' then error('fn must be a function',2)end
-  self.events[event]=fn
+local function subscribe(self,event,fns)
+  if not events[event] then error('invalid event: '..event,3) end
+  if type(fns)=='function' then fns={fns} end
+  if type(fns)~='table' then error('fn must be a function or table of functions',3) end
+  for _,fn in ipairs(fns) do
+    if type(fn)~='function' then error('fn must be a function or table of functions',3) end
+    if not self.events[event] then self.events[event]={} end
+    self.events[event][fn]=true
+    log.df('Added callback for event %s',event)
+  end
+  --  self.events[event]=fn
   return self
 end
-local function unsubscribe(self,event)
-  if not events[event] then error('invalid event: '..event,2) end
-  self.events[event]=nil
-  --  if not next(self.events) then return self:unsubscribeAll() end
+local function unsubscribe(self,fn)
+  for event in pairs(events) do
+    if self.events[event] and self.events[event][fn] then
+      log.df('Removed callback for event %s',event)
+      self.events[event][fn]=nil
+      if not next(self.events[event]) then
+        log.df('No more callbacks for event %s',event)
+        self.events[event]=nil
+      end
+    end
+  end
   return self
 end
 
+local function unsubscribeEvent(self,event)
+  if not events[event] then error('invalid event: '..event,3) end
+  if self.events[event] then log.df('Removed all callbacks for event %s',event) end
+  self.events[event]=nil
+  return self
+end
 --- hs.windowwatcher:getWindows() -> table
 --- Method
 --- Gets the list of windows being watched
@@ -487,7 +508,7 @@ end
 ---
 --- Parameters:
 ---  * event - string or table of strings, the event(s) to subscribe to (see the `hs.windowwatcher` constants)
----   * fn - the callback for the event(s); it will be passed two parameters:
+---  * fn - function or table of functions - the callback(s) to add for the event(s); each will be passed two parameters:
 ---          * a `hs.window` object referring to the event's window
 ---          * a string containing the application name (`window:application():title()`) for convenience
 ---
@@ -503,23 +524,31 @@ function windowwatcher:subscribe(event,fn)
   else error('event must be a string or a table of strings',2) end
 end
 
---- hs.windowwatcher:unsubscribe(event)
+--- hs.windowwatcher:unsubscribe(fn)
 --- Method
---- Removes all subscriptions
+--- Removes one or more subscriptions
 ---
 --- Parameters:
----  * event - string or table of strings, the event(s) to unsubscribe
+---  * fn - it can be:
+---    * a function or table of functions: the callback(s) to remove
+---    * a string or table of strings: the event(s) to unsubscribe (*all* callbacks will be removed from these)
 ---
 --- Returns:
 ---  * the `hs.windowwatcher` object for method chaining
-function windowwatcher:unsubscribe(event)
-  if type(event)=='string' then return unsubscribe(self,event)
-  elseif type(event)=='table' then
-    for _,e in ipairs(event) do
-      unsubscribe(self,event)
-    end
-    return self
-  else error('event must be a string or a table of strings',2) end
+---
+--- Notes:
+---  * If calling this on the default (or any other shared use) windowwatcher, do not pass events, as that would remove
+---    *all* the callbacks for the events including ones subscribed elsewhere that you might not be aware of. Instead keep
+---    references to your functions and pass in those.
+function windowwatcher:unsubscribe(fn)
+  if type(fn)=='string' or type(fn)=='function' then fn={fn} end--return unsubscribe(self,fn)
+  if type(fn)~='table' then error('fn must be a function, string, or a table of functions or strings',2) end
+  for _,e in ipairs(fn) do
+    if type(e)=='string' then unsubscribeEvent(self,e)
+    elseif type(e)=='function' then unsubscribe(self,e)
+    else error('fn must be a function, string, or a table of functions or strings',2) end
+  end
+  return self
 end
 
 --- hs.windowwatcher:unsubscribeAll() -> hs.windowwatcher
@@ -528,6 +557,9 @@ end
 ---
 --- Returns:
 ---  * the `hs.windowwatcher` object for method chaining
+---
+--- Notes:
+---  * You should not use this on the default windowwatcher or other shared windowwatchers
 function windowwatcher:unsubscribeAll()
   self.events={}
   return self

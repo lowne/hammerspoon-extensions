@@ -97,7 +97,7 @@ function delayed.doAfter(prev,delay,fn,...)
   if type(fn)~='function' then error('fn must be a function',2) end
   if type(delay)~='number' then error('delay must be a number',2)end
 
-  delay=max(delay,0)
+  delay=max(delay,0.01)
   local d = {time = delay, fn = fn, args = args}
   local ctime=gettime()
   --  log.vf('doAfter at %.3f',math.fmod(ctime,10))
