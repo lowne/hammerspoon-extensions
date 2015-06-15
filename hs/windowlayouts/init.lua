@@ -2,7 +2,7 @@
 ---
 --- Save and restore window layouts; and automatically keep track and apply layouts across different screen configurations
 
--- FIXME still some bugs, needs more testing
+-- FIXME test non-auto mode
 
 --TODO constructors with a list of allowed appnames all the way down (watcher,filter)
 
@@ -257,7 +257,7 @@ local function enumScreens(screens)
     screenGeometry = screenGeometry..rect2str(screen:fullFrame())
   end
   log.f('Enumerated screens: %s',screenGeometry)
-  for wl in pairs(instances) do wl:refreshWindows() end
+  for wl in pairs(instances) do wl:removeIDs() wl:refreshWindows() end
 end
 
 

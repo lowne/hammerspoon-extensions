@@ -329,7 +329,7 @@ function windowfilter.new(fn,includeFullscreen,includeInvisible)
     if isTable then
       for _,app in ipairs(fn) do
         log.i('allow '..app)
-        o:setAppFilter(app,nil,nil,ALLOWED_NONSTANDARD_WINDOW_ROLES,false,true)
+        o:setAppFilter(app,nil,nil,ALLOWED_NONSTANDARD_WINDOW_ROLES,nil,true)
       end
     end
     return o
@@ -343,7 +343,7 @@ end
 --- The default windowfilter; it filters nonstandard or transient windows (floating windows, menulet windows, notifications etc.), fullscreen windows, and invisible windows
 ---
 --- Notes:
----  * while you can customize the default windowfilter, it's advisable to make your customizations on a local copy via `hs.windowfilter.new(true)`
+---  * while you can customize the default windowfilter, it's advisable to make your customizations on a local copy via `hs.windowfilter.new()`
 
 windowfilter.default = windowfilter.new()
 local appstoskip={}
