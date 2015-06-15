@@ -1,7 +1,8 @@
 --- === hs.windowlayouts ===
 ---
---- Save and restore window layouts; and automatically keep track and apply layouts across different screen sets/geometries
+--- Save and restore window layouts; and automatically keep track and apply layouts across different screen configurations
 
+-- FIXME still some bugs, needs more testing
 
 --TODO constructors with a list of allowed appnames all the way down (watcher,filter)
 
@@ -14,10 +15,7 @@ windowlayouts.setLogLevel=function(lvl) log.setLogLevel(lvl)end
 
 local instances = {} -- started/running instances
 
-
-
 local KEY_LAYOUTS = 'windowlayouts.automode'
-
 
 local function sortedinsert(t,elem,comp)
   local i = 1
@@ -62,7 +60,7 @@ end
 
 
 
----returns an existing table for the newly created window, or nil if not found
+--returns an existing table for the newly created window, or nil if not found
 function windowlayouts:findMatchingWindow(appname,win,role,title)
   local frame = win:frame()
   local savedWindows = self.windows[appname]
@@ -79,7 +77,7 @@ function windowlayouts:findMatchingWindow(appname,win,role,title)
         log.df('title match for %s [%s]: %s',role,appname,title)
         return savedwin
       else
-        -- otherwise, match the best fitting window
+        -- otherwise, match the best fitting window (if reasonably similar in shape/size)
         local area = frame.w*frame.h
         local aspect = frame.w/frame.h
         local sarea = savedwin.w*savedwin.h
@@ -164,23 +162,26 @@ end
 
 
 
---TODO
+
 local spacesDone = {}
---- tell us from outside that we switched to another space, and should refresh windows
+--- hs.windowlayouts.switchedToSpace(space)
+--- Function
+--- Call this from your `init.lua` when you intercept (e.g. via `hs.hotkey.bind`) a space change
+---
+--- Parameters:
+---  * space - integer, the space number we're switching to
 function windowlayouts.switchedToSpace(space)
-  if not spacesDone[space] then
+  if spacesDone[space] then log.v('Switched to space #'..space) return end
+  for wl in pairs(instances) do
+    wl.duringAutoLayout=true
+  end
+  hs.windowwatcher.switchedToSpace(space,function()
     log.i('Entered space #'..space..', refreshing all windows')
-    for wl in pairs(instances) do
-      wl.duringAutoLayout=true
-    end
-    hs.windowwatcher.switchedToSpace(space)
     for wl in pairs(instances) do
       wl:refreshWindows()
     end
     spacesDone[space] = true
-  else
-    log.v('Switched to space #'..space)
-  end
+  end)
 end
 
 function windowlayouts:removeIDs()
@@ -195,11 +196,14 @@ function windowlayouts:removeIDs()
 end
 
 
-local globalIsRunning
-
+local globalRunning
 
 local screenGeometry
 
+--- hs.windowlayouts:getLayout() -> table, string
+--- Method
+--- Gets the current window layout
+---
 --- Returns:
 ---   * a table containing the current layout for the instance windows; you can save it with `hs.settings.set` for later use
 ---   * a string describing the current screen geometry; if relevant you can use it as part of the key name when saving with `hs.settings.set`
@@ -209,6 +213,13 @@ function windowlayouts:getLayout()
   return self.windows, screenGeometry
 end
 
+--- hs.windowlayouts:applyLayout(layout)
+--- Method
+--- Applies a previously saved window layout to the current windows
+---
+--- Parameters:
+---  * layouts - a table containing the window layout to apply, as returned by `hs.windowlayout.getLayout`
+---
 --- Notes:
 ---  * This won't work for instances that have been started in auto mode
 function windowlayouts:applyLayout(layout)
@@ -259,22 +270,29 @@ end
 
 
 local function startGlobal()
-  if globalIsRunning then return end
-  globalIsRunning = true
+  if globalRunning then return end
+  globalRunning = true
   log.i('global start')
   hs.screenwatcher.subscribe(screensChanged,enumScreens)
 end
 
 local function stopGlobal()
-  if not globalIsRunning then return end
+  if not globalRunning then return end
   if next(instances) then return end
   --  for wl in pairs(instances) do
   --    if wl.active then return end
   --  end
-  globalIsRunning = nil
+  globalRunning = nil
   log.i('global stop')
   hs.screenwatcher.unsubscribe({enumScreens,screensChanged})
 end
+
+--- hs.windowlayouts:start() -> hs.windowlayouts
+--- Method
+--- Starts an `hs.windowlayouts` instance
+---
+--- Returns:
+---  * the instance, for method chaining
 function windowlayouts:start()
   if instances[self] then log.i('instance was already started, ignoring') return end
   startGlobal()
@@ -287,7 +305,17 @@ function windowlayouts:start()
   return self
 end
 
-
+--- hs.windowlayouts:startAutoMode() -> hs.windowlayouts
+--- Method
+--- Starts an `hs.windowlayouts` instance in automatic mode.
+--- As you move windows around, the window layout is automatically saved internally for the current screen configuration;
+--- when screen changes are detected, the appropriate layout is automatically applied to current and future windows.
+--- In practice this means that when e.g. you connect your laptop to your triple-monitor setup at your desk,
+--- all the windows (including those that will be opened later) will be restored to exactly where they were
+---  when you last left your desk - and vice versa.
+---
+--- Returns:
+---  * the instance, for method chaining
 function windowlayouts:startAutoMode()
   if instances[self] then log.i('instance was already started, ignoring') return end
   -- only one automode instance allowed
@@ -307,6 +335,13 @@ function windowlayouts:startAutoMode()
     :subscribe(hs.windowwatcher.windowMoved,self.wwsubs[3])
   return self:start()
 end
+
+--- hs.windowlayouts:stop() -> hs.windowlayouts
+--- Method
+--- Stops an `hs.windowlayouts` instance (for cleanup)
+---
+--- Returns:
+---  * the instance, for method chaining
 function windowlayouts:stop()
   log.i('stop')
   instances[self] = nil
@@ -316,19 +351,33 @@ function windowlayouts:stop()
   return self
 end
 
+--- hs.windowlayouts:pause() -> hs.windowlayouts
+--- Method
+--- Pauses the instance
+---
+--- Returns:
+---  * the instance, for method chaining
+
+--- hs.windowlayouts:resume() -> hs.windowlayouts
+--- Method
+--- Resumes the instance
+---
+--- Returns:
+---  * the instance, for method chaining
 function windowlayouts:pause() instances[self]=false log.i('autolayout paused')end
 function windowlayouts:resume() instances[self]=true log.i('autolayout resumed') self:removeIDs() self:refreshWindows() end
+
 function windowlayouts:resetAll()
+  -- useful for testing/debugging
   log.w('Autolayout reset')
   self.layouts = {}
   self:actualSave()
   self:refreshWindows()
-  -- TODO
 end
 
---- hs.windowlayouts.new(windowfilter,...) -> hs.windowlayout
+--- hs.windowlayouts.new(windowfilter,...) -> hs.windowlayouts
 --- Function
---- Creates a new windowlayout instance. The windowlayout uses a `hs.windowfilter` object to only affect specific windows
+--- Creates a new `hs.windowlayouts` instance. It uses an `hs.windowfilter` object to only affect specific windows
 ---
 --- Parameters:
 ---  * windowfilter - if all parameters are nil (as in `myww=hs.windowlayout.new()`), the default windowfilter will be used for this windowlayout
@@ -337,7 +386,7 @@ end
 ---  * ... - (optional) additional arguments passed to `hs.windowfilter.new`
 ---
 --- Returns:
----  * a new windowlayout instance
+---  * a new `hs.windowlayouts` instance
 
 windowlayouts.new = function(windowfilter,...)
   local o = setmetatable({layouts={}},{__index=windowlayouts})

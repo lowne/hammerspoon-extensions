@@ -3,6 +3,10 @@
 --- A singleton hs.screen.watcher (and companion hs.caffeinate.watcher) for multiple consumption
 
 local log=hs.logger.new('swatcher',5)
+
+--- hs.screenwatcher.delay
+--- Variable
+--- The delay in second between callback calls to `fn` and `fnDelayed`; default is 3
 local screenwatcher={delay=3}
 
 local swinstance,pwinstance
@@ -37,9 +41,7 @@ end
 local running
 
 local function start()
-  if running then return end
   if not swinstance then
-    log.i('Instance created')
     swinstance=hs.screen.watcher.new(startScreensChanged)
     swinstance:start()
     pwinstance = hs.caffeinate.watcher.new(function(ev)
@@ -50,27 +52,48 @@ local function start()
   end
   log.i('Instance started')
   swinstance:start() pwinstance:start() running=true
-  --  startScreensChanged()
 end
 
-local function stop()
-  if not running then return
-  elseif next(subdone) or next(substarted) then return end
+--- hs.screenwatcher.stop()
+--- Function
+--- Cleanup
+function screenwatcher.stop()
   hs.delayed.cancel(screensChangedDelayed)
   log.i('Instance stopped')
-  swinstance:stop() pwinstance:stop() running=nil
+  swinstance:stop() pwinstance:stop() subdone,substarted={},{} swinstance,pwinstance,running=nil
 end
 
+
+--- hs.screenwatcher.subscribe(fn, fndelayed)
+--- Function
+--- Set a callback function for screen change events
+---
+--- Parameters:
+---  * fn - can be nil; a function that will be called when the attached screens change;
+---         it will receive a list of the attached screens (as per `hs.screen.allScreens()`)
+---  * fnDelayed - (optional) a function that will be called shortly after the attached screens change;
+---                it will receive a list of the attached screens (as per `hs.screen.allScreens()`).
+---                Use this if you want to let the system perform its tasks (such as rearranging windows around) before the callback.
+---
+--- Notes:
+---  * the callback(s) will be called once immediately upon subscribing
 function screenwatcher.subscribe(fn,fnDelayed)
+  if not fn and not fnDelayed then return end
   log.d('Adding subscription')
-  if type(fn)~='function' or (fnDelayed~=nil and type(fnDelayed)~='function') then error('fn and fnDelayed must be functions',2) end
-  start()
-  substarted[fn]=true
+  if (fn~=nil and type(fn)~='function') or (fnDelayed~=nil and type(fnDelayed)~='function') then error('fn and fnDelayed must be nil or functions',2) end
+  if not running then start() end
+  if fn then substarted[fn]=true end
   if fnDelayed then subdone[fnDelayed]=true end
   fn(allScreens())
   if not screensChangedDelayed and fnDelayed then fnDelayed(allScreens()) end
 end
 
+--- hs.screenwatcher.unsubscribe(fns)
+--- Function
+--- Unsubscribe one or more callbacks
+---
+--- Parameters:
+---  * fns - function or table of functions to unsubscribe
 function screenwatcher.unsubscribe(fns)
   if not fns then return
   elseif type(fns)=='function' then fns={fns}
@@ -81,7 +104,7 @@ function screenwatcher.unsubscribe(fns)
       subdone[fn]=nil substarted[fn]=nil
     end
   end
-  stop()
+  if running and not next(subdone) and not next(substarted) then screenwatcher.stop() end
 end
 
 return screenwatcher

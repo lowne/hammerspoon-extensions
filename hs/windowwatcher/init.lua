@@ -593,15 +593,20 @@ function windowwatcher:stop()
 end
 
 local spacesDone = {}
-function windowwatcher.switchedToSpace(space)
-  if spacesDone[space] then log.v('Switched to space #'..space) return end
-  log.f('Entered space #%d, refreshing all windows',space)
-  spacesDone[space] = true
-  for _,app in pairs(apps) do
-    app:getWindows()
-  end
+function windowwatcher.switchedToSpace(space,cb)
+  --  hs.delayed.cancel(spaceDelayed)
+  if spacesDone[space] then log.v('Switched to space #'..space) return cb and cb() end
+  --  spaceDelayed=hs.delayed.doAfter(spaceDelayed,0.5,function()
+  hs.delayed.doAfter(0.5,function()
+    if spacesDone[space] then log.v('Switched to space #'..space) return cb and cb() end
+    log.f('Entered space #%d, refreshing all windows',space)
+    for _,app in pairs(apps) do
+      app:getWindows()
+    end
+    spacesDone[space] = true
+    return cb and cb()
+  end)
 end
-
 
 --- hs.windowwatcher.new(windowfilter,...) -> hs.windowwatcher
 --- Function

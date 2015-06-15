@@ -1,6 +1,10 @@
 --- === hs.grids ===
 ---
 --- Modal hotkey window resize on per-screen grids
+--- Currently, only QWERTY layouts are supported and the maximum grid size is 8x5 (and that uses the function keys, so set
+--- System Preferences/Keyboard accordingly)
+
+-- TODO allow passing custom keyboard map for non-qwerty layouts
 
 local dr,delayed = hs.drawing,hs.delayed
 local ipairs,pairs,min,max,floor,fmod = ipairs,pairs,math.min,math.max,math.floor,math.fmod
@@ -46,12 +50,23 @@ local function toKey(rect) return sformat('%dx%d',rect.w,rect.h) end
 
 local gridSizes = {} -- user-defined grid sizes for each screen geometry
 
+--- hs.grids.setGrid(screen, grid) -> hs.grids
+--- Function
+--- Sets the grid size for a given screen geometry
+---
 --- Parameters:
 ---  * screen - the screen geometry to apply the grid to; it can be:
 ---    * an `hs.screen` object
 ---    * an `hs.geometry.rect` object
 ---    * a string in the format `WWWWxHHHH` where WWWW and HHHH are the screen width and heigth in pixels
 --- * grid - a string in the format `CxR` where C and R are the desired number of columns and rows
+---
+--- Returns:
+---   * hs.grids for method chaining
+---
+--- Usage:
+--- ```hs.grids.setGrid('1920x1080','5x3') -- sets the resizing grid to 5x3 for any screens with a 1920x1080 resolution
+--- hs.grids.setGrid(hs.screens.mainScreen(),'4x4') -- sets the grid to 4x4 for the main screen (at its current resolution)```
 function grids.setGrid(screen,grid)
   local screenFrame = toRect(screen)
   local grid = toRect(grid,true)
@@ -133,14 +148,11 @@ local function hideGrid(screen)
   for _,elem in pairs(e) do elem.rect:hide() elem.text:hide() end
 end
 
---function grids.bind(modifier,key,message,duration)
-function grids.show()
-  resizing:exit()
-  resizing:enter()
-end
 
+local initialized
 local function _start()
-  --  setGrids()
+  if initialized then return end
+  hs.screenwatcher.subscribe(setGrids)
   resizing=hs.hotkey.modal.new()
   local function showHighlight()
     if highlight then highlight:delete() end
@@ -150,7 +162,6 @@ local function _start()
     highlight:show()
   end
   function resizing:entered()
-    --    if message then hs.alert(message,duration or 1) end
     currentWindow=hs.window.focusedWindow()
     if not currentWindow then log.w('Cannot get current window, aborting') resizing:exit() return end
     log.df('Start moving %s [%s]',currentWindow:subrole(),currentWindow:application():title())
@@ -212,16 +223,27 @@ local function _start()
       resizing:bind({},c,function()hintPressed(c) end)
     end
   end
+  initialized=true
 end
 
-function grids.start()
-  hs.screenwatcher.subscribe(setGrids)
-  _start()
+--- hs.grids.show()
+--- Function
+--- Shows the resizing grid and starts the modal resizing process for the focused window.
+--- In most cases this function should be invoked via `hs.hotkey.bind` with some keyboard shortcut.
+
+function grids.show()
+  if not initialized then _start()
+  else resizing:exit() end
+  resizing:enter()
 end
 
+--- hs.grids.stop()
+--- Function
+--- Cleanup when you're done (no need to call this in most cases)
 function grids.stop()
   if resizing then resizing:exit() end
   hs.screenwatcher.unsubscribe(setGrids)
+  initialized=nil
 end
 
 return grids
