@@ -6,13 +6,13 @@
 -- * The API is kept super simple; perhaps a proper transactional taskqueue would be useful? What use cases?
 -- * Debugging can get difficult; ideally this should be fixed (either via explicit params, or better via debug.getinfo)
 
-hs = require'hs._inject_extensions'
-local delayed = {}
-local log = hs.logger.new('delayed','info')
-delayed.setLogLevel=function(lvl)log.setLogLevel(lvl) return delayed end
+local gettime=require'socket'.gettime --FIXME need a native hook
+
 local pairs,next,type,tinsert,tunpack,max,min = pairs,next,type,table.insert,table.unpack,math.max,math.min
-local newtimer=hs.timer.new
-local gettime = require'socket'.gettime --FIXME need a native hook
+local delayed = {} -- module
+local log = require'hs.logger'.new('delayed')
+delayed.setLogLevel=function(lvl)log.setLogLevel(lvl) return delayed end
+local newtimer=require'hs.timer'.new
 
 local TOLERANCE=0.05
 

@@ -6,10 +6,13 @@
 
 -- TODO allow passing custom keyboard map for non-qwerty layouts
 
-local dr,delayed = hs.drawing,hs.delayed
 local ipairs,pairs,min,max,floor,fmod = ipairs,pairs,math.min,math.max,math.floor,math.fmod
 local sformat,smatch,type,tonumber = string.format,string.match,type,tonumber
-local log = hs.logger.new('grids',4)
+local dr = require'hs.drawing'
+local screenwatcher=require'hs.screenwatcher'
+local focusedWindow=require'hs.window'.focusedWindow
+local newmodal=require'hs.hotkey'.modal.new
+local log = require'hs.logger'.new('grids')
 local grids = {setLogLevel = function(lvl) log.setLogLevel(lvl)end} -- module
 
 local screens, currentScreen, currentWindow, highlight = {}
@@ -88,7 +91,6 @@ end
 local resizing-- modal hotkey
 local function setGrids(screens)
   if resizing then resizing:exit() end
-  --  screens = hs.screen.allScreens()
   for i,screen in ipairs(screens) do
     local key = getScreenKey(screen)
     local frame = screen:frame()
@@ -152,8 +154,8 @@ end
 local initialized
 local function _start()
   if initialized then return end
-  hs.screenwatcher.subscribe(setGrids)
-  resizing=hs.hotkey.modal.new()
+  screenwatcher.subscribe(setGrids)
+  resizing=newmodal()
   local function showHighlight()
     if highlight then highlight:delete() end
     highlight = dr.rectangle(currentWindow:frame())
@@ -162,7 +164,7 @@ local function _start()
     highlight:show()
   end
   function resizing:entered()
-    currentWindow=hs.window.focusedWindow()
+    currentWindow=focusedWindow()
     if not currentWindow then log.w('Cannot get current window, aborting') resizing:exit() return end
     log.df('Start moving %s [%s]',currentWindow:subrole(),currentWindow:application():title())
 
@@ -242,7 +244,7 @@ end
 --- Cleanup when you're done (no need to call this in most cases)
 function grids.stop()
   if resizing then resizing:exit() end
-  hs.screenwatcher.unsubscribe(setGrids)
+  screenwatcher.unsubscribe(setGrids)
   initialized=nil
 end
 

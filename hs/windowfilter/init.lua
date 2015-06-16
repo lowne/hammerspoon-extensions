@@ -7,11 +7,11 @@
 --    (how many menulets are out there?)
 -- * Maybe an additional filter could be added for window geometry (e.g. minimum width/heigth/area)
 
-hs=require'hs._inject_extensions'
-local log=hs.logger.new('wfilter')
-local ipairs,type,smatch,sformat = ipairs,type,string.match,string.format
+local ipairs,type,smatch,sformat,ssub = ipairs,type,string.match,string.format,string.sub
 
-local windowfilter={}
+local log=require'hs.logger'.new('wfilter')
+
+local windowfilter={} -- module
 windowfilter.setLogLevel=function(lvl)log.setLogLevel(lvl) return windowfilter end
 
 local SKIP_APPS_NO_PID = {
@@ -364,7 +364,6 @@ end
 --- Returns:
 ---  * `false` if the app is a known non-GUI (or not accessible) app; `true` otherwise
 
-local ssub=string.sub
 windowfilter.isGuiApp = function(appname)
   if not appname then return true
   elseif appstoskip[appname] then return false

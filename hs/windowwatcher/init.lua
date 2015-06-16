@@ -237,7 +237,7 @@ end
 function App.new(app,appname,watcher)
   local o = setmetatable({app=app,name=appname,watcher=watcher,windows={}},{__index=App})
   if app:isHidden() then o.isHidden=true end
-  --FIXME is there a way to get windows in different spaces? focusedWindow() doesn't have a problem with that
+  --TODO is there a way to get windows in different spaces? focusedWindow() doesn't have a problem with that
   log.f('New app %s registered',appname)
   apps[appname] = o
   o:getWindows()

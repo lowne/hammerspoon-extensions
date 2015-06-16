@@ -2,7 +2,6 @@
 ---
 --- A singleton hs.screen.watcher (and companion hs.caffeinate.watcher) for multiple consumption
 
-local log=hs.logger.new('swatcher',5)
 
 --- hs.screenwatcher.delay
 --- Variable
@@ -11,7 +10,10 @@ local screenwatcher={delay=3}
 
 local swinstance,pwinstance
 local substarted,subdone={},{}
-local sformat,pairs,ipairs,doAfter,allScreens=string.format,pairs,ipairs,hs.delayed.doAfter,hs.screen.allScreens
+local type,next,sformat,pairs,ipairs=type,next,string.format,pairs,ipairs
+local delayed,allScreens=require'hs.delayed',require'hs.screen'.allScreens
+local hsscreenwatcher,hspowerwatcher=require'hs.screen.watcher',require'hs.caffeinate.watcher'
+local log=require'hs.logger'.new('swatcher')
 
 local screensChangedDelayed
 local function screensChanged()
@@ -35,17 +37,17 @@ local function startScreensChanged()
   for fn in pairs(substarted) do
     fn(screens)
   end
-  screensChangedDelayed=doAfter(screensChangedDelayed,screenwatcher.delay,screensChanged)
+  screensChangedDelayed=delayed.doAfter(screensChangedDelayed,screenwatcher.delay,screensChanged)
 end
 
 local running
 
 local function start()
   if not swinstance then
-    swinstance=hs.screen.watcher.new(startScreensChanged)
+    swinstance=hsscreenwatcher.new(startScreensChanged)
     swinstance:start()
-    pwinstance = hs.caffeinate.watcher.new(function(ev)
-      if ev==hs.caffeinate.watcher.screensDidWake then
+    pwinstance = hspowerwatcher.new(function(ev)
+      if ev==hspowerwatcher.screensDidWake then
         startScreensChanged()
       end
     end)
@@ -58,7 +60,7 @@ end
 --- Function
 --- Cleanup
 function screenwatcher.stop()
-  hs.delayed.cancel(screensChangedDelayed)
+  delayed.cancel(screensChangedDelayed)
   log.i('Instance stopped')
   swinstance:stop() pwinstance:stop() subdone,substarted={},{} swinstance,pwinstance,running=nil
 end
