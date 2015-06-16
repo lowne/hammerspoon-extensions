@@ -18,15 +18,14 @@
 -- * Perhaps the user should be allowed to provide his own root filter for better performance
 --   (e.g. if she knows all she cares about is Safari)
 
-hs = require'hs._inject_extensions'
-local type,next,pairs,ipairs,tsort=type,next,pairs,ipairs,table.sort
-local setmetatable=setmetatable
-local log = hs.logger.new('wwatcher')
-local delayed = hs.delayed
-local hsappwatcher,hsapp,hswin=hs.application.watcher,hs.application,hs.window
-local hsuiwatcher=hs.uielement.watcher
+local type,next,pairs,ipairs,tsort,setmetatable=type,next,pairs,ipairs,table.sort,setmetatable
+local windowfilter=require'hs.windowfilter'
+local log=require'hs.logger'.new('wwatcher')
+local delayed=require'hs.delayed'
+local hsappwatcher,hsapp,hswin=require'hs.application.watcher',require'hs.application',require'hs.window'
+local hsuiwatcher=require'hs.uielement'.watcher
 
-local isGuiApp = hs.windowfilter.isGuiApp
+local isGuiApp = windowfilter.isGuiApp
 --TODO allow override of 'root' windowfilter
 
 local watchers={} -- internal list for windowwatchers
@@ -594,10 +593,8 @@ end
 
 local spacesDone = {}
 function windowwatcher.switchedToSpace(space,cb)
-  --  hs.delayed.cancel(spaceDelayed)
   if spacesDone[space] then log.v('Switched to space #'..space) return cb and cb() end
-  --  spaceDelayed=hs.delayed.doAfter(spaceDelayed,0.5,function()
-  hs.delayed.doAfter(0.5,function()
+  delayed.doAfter(0.5,function()
     if spacesDone[space] then log.v('Switched to space #'..space) return cb and cb() end
     log.f('Entered space #%d, refreshing all windows',space)
     for _,app in pairs(apps) do
@@ -621,19 +618,36 @@ end
 --- Returns:
 ---  * a new windowwatcher instance
 
-function windowwatcher.new(windowfilter,...)
-  if windowfilter==nil then
-    local allnil=true
-    for i=1,select('#',...) do
-      if select(i,...)~=nil then allnil=false break end
+local function allnil(...)
+  local n=select('#',...)
+  for i=1,n do if select(i,...)~=nil then return end end
+  return true
+end
+function windowwatcher.new(wf,...)
+  local o = setmetatable({events={}},{__index=windowwatcher})
+  if wf==nil then
+    if allnil(...) then
+      log.i('new windowwatcher using default windowfilter')
+      o.windowfilter=windowfilter.default
     end
-    if allnil then windowfilter=hs.windowfilter.default
-    else windowfilter=hs.windowfilter.new(nil,...) end
-  elseif type(windowfilter)~='table' or type(windowfilter.isWindowAllowed)~='function' then windowfilter=hs.windowfilter.new(windowfilter,...) end
-  local o = setmetatable({events={},windowfilter=windowfilter},{__index=windowwatcher})
+  elseif type(wf)=='table' and type(wf.isWindowAllwed)=='function' then
+    log.i('new windowwatcher using a windowfilter instance')
+    o.windowfilter=wf
+  end
+  if not o.windowfilter then
+    log.i('new windowwatcher, creating windowfilter')
+    o.windowfilter=windowfilter.new(wf,...)
+  end
   return o
 end
 
+--- hs.windowwatcher.default
+--- Constant
+--- The default windowwatcher, which uses the default windowfilter (`hs.windowfilter.default`)
+---
+--- Notes:
+---  * Use care when calling `:unsubscribe()`, `:unsubscribeAll()` or `:stop()` on the default windowwatcher; it might be in use elsewhere.
 windowwatcher.default = windowwatcher.new()
+log.i('default windowwatcher instantiated')
 windowwatcher.setLogLevel=log.setLogLevel
 return windowwatcher

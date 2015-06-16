@@ -8,7 +8,7 @@
 -- * Maybe an additional filter could be added for window geometry (e.g. minimum width/heigth/area)
 
 hs=require'hs._inject_extensions'
-local log=hs.logger.new('wfilter','info')
+local log=hs.logger.new('wfilter')
 local ipairs,type,smatch,sformat = ipairs,type,string.match,string.format
 
 local windowfilter={}
@@ -275,7 +275,7 @@ end
 --- Creates a new hs.windowfilter instance
 ---
 --- Parameters:
----  * fn - if `nil`, returns a copy of the default windowfilter that you can further restrict or expand
+---  * fn - if `nil`, returns a copy of the default windowfilter; you can then further restrict or expand it
 ---       - if `true`, returns an empty windowfilter that allows every window
 ---       - if `false`, returns a windowfilter with a default rule to reject every window
 --        - if a string or table of strings, returns a copy of the default windowfilter that only accepts the specified apps
@@ -288,7 +288,7 @@ end
 
 function windowfilter.new(fn,includeFullscreen,includeInvisible)
   if type(fn)=='function' then
-    log.i('instantiating custom windowfilter')
+    log.i('new windowfilter, custom function')
     return {
       isWindowAllowed = fn,
       isAppAllowed = function()return true end,
@@ -305,13 +305,13 @@ function windowfilter.new(fn,includeFullscreen,includeInvisible)
   local isTable=type(fn)=='table'
   local o = setmetatable({apps={}},{__index=wf})
   if fn==nil or isTable then
-    log.i('instantiating default windowfilter')
     for _,list in ipairs{SKIP_APPS_NO_PID,SKIP_APPS_NO_WINDOWS,SKIP_APPS_TRANSIENT_WINDOWS} do
       for _,appname in ipairs(list) do
         o:rejectApp(appname)
       end
     end
     if not isTable then
+      log.i('new windowfilter, default windowfilter copy')
       for _,appname in ipairs(APPS_ALLOW_NONSTANDARD_WINDOWS) do
         o:setAppFilter(appname,nil,nil,ALLOWED_NONSTANDARD_WINDOW_ROLES)
       end
@@ -319,22 +319,21 @@ function windowfilter.new(fn,includeFullscreen,includeInvisible)
         o:setAppFilter(appname,1)
       end
       o:setAppFilter('Hammerspoon',{'Preferences','Console'})
-    end
-    local fs,vis=false,true
-    if includeFullscreen then fs=nil end
-    if includeInvisible then vis=nil end
-    --    o:setOverrideFilter(nil,nil,nil,fs,vis)
-    if isTable then o:setDefaultFilter(false) log.i('reject all apps')
-    else o:setDefaultFilter(nil,nil,ALLOWED_WINDOW_ROLES,fs,vis) end
-    if isTable then
+      local fs,vis=false,true
+      if includeFullscreen then fs=nil end
+      if includeInvisible then vis=nil end
+      o:setDefaultFilter(nil,nil,ALLOWED_WINDOW_ROLES,fs,vis)
+    else
+      log.i('new windowfilter, reject all with exceptions')
       for _,app in ipairs(fn) do
         log.i('allow '..app)
         o:setAppFilter(app,nil,nil,ALLOWED_NONSTANDARD_WINDOW_ROLES,nil,true)
       end
+      o:setDefaultFilter(false)
     end
     return o
-  elseif fn==true then log.i('instantiating empty windowfilter') return o
-  elseif fn==false then o:setDefaultFilter(false)  return o
+  elseif fn==true then log.i('new empty windowfilter') return o
+  elseif fn==false then log.i('new windowfilter, reject all') o:setDefaultFilter(false)  return o
   else error('fn must be nil, a boolean, a string or table of strings, or a function',2) end
 end
 
@@ -346,6 +345,7 @@ end
 ---  * while you can customize the default windowfilter, it's advisable to make your customizations on a local copy via `hs.windowfilter.new()`
 
 windowfilter.default = windowfilter.new()
+log.i('default windowfilter instantiated')
 local appstoskip={}
 for _,list in ipairs{SKIP_APPS_NO_PID,SKIP_APPS_NO_WINDOWS} do
   for _,appname in ipairs(list) do

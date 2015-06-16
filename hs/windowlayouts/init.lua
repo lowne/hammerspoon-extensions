@@ -6,9 +6,12 @@
 
 --TODO constructors with a list of allowed appnames all the way down (watcher,filter)
 
-local ipairs,pairs,tinsert,tsort,ssub,time,sformat=ipairs,pairs,table.insert,table.sort,string.sub,os.time,string.format
-local doAfter=hs.delayed.doAfter
-local log = hs.logger.new('wlayouts','info')
+local next,ipairs,pairs,tinsert,tsort,ssub,time,sformat=next,ipairs,pairs,table.insert,table.sort,string.sub,os.time,string.format
+local windowwatcher=require'hs.windowwatcher'
+local screenwatcher=require'hs.screenwatcher'
+local settings=require'hs.settings'
+local doAfter=require'hs.delayed'.doAfter
+local log = require'hs.logger'.new('wlayouts')
 
 local windowlayouts = {} -- class and module
 windowlayouts.setLogLevel=function(lvl) log.setLogLevel(lvl)end
@@ -41,7 +44,7 @@ function windowlayouts:actualSave()
   if self.duringAutolayout then self.saveDelayed=doAfter(self.saveDelayed,5,windowlayouts.actualSave,self)
   else
     log.i('automode layout saved')
-    hs.settings.set(KEY_LAYOUTS, self.layouts)
+    settings.set(KEY_LAYOUTS, self.layouts)
   end
 end
 function windowlayouts:saveSettings()
@@ -54,7 +57,7 @@ end
 
 function windowlayouts:loadSettings()
   log.i('automode layout loaded')
-  self.layouts = hs.settings.get(KEY_LAYOUTS) or {}
+  self.layouts = settings.get(KEY_LAYOUTS) or {}
 end
 
 
@@ -175,7 +178,7 @@ function windowlayouts.switchedToSpace(space)
   for wl in pairs(instances) do
     wl.duringAutoLayout=true
   end
-  hs.windowwatcher.switchedToSpace(space,function()
+  windowwatcher.switchedToSpace(space,function()
     log.i('Entered space #'..space..', refreshing all windows')
     for wl in pairs(instances) do
       wl:refreshWindows()
@@ -273,7 +276,7 @@ local function startGlobal()
   if globalRunning then return end
   globalRunning = true
   log.i('global start')
-  hs.screenwatcher.subscribe(screensChanged,enumScreens)
+  screenwatcher.subscribe(screensChanged,enumScreens)
 end
 
 local function stopGlobal()
@@ -284,7 +287,7 @@ local function stopGlobal()
   --  end
   globalRunning = nil
   log.i('global stop')
-  hs.screenwatcher.unsubscribe({enumScreens,screensChanged})
+  screenwatcher.unsubscribe({enumScreens,screensChanged})
 end
 
 --- hs.windowlayouts:start() -> hs.windowlayouts
@@ -330,9 +333,9 @@ function windowlayouts:startAutoMode()
     function(w,a)self:windowHidden(w,a)end,
     function(w,a)self:windowMoved(w,a)end
   }
-  self.ww:subscribe(hs.windowwatcher.windowShown,self.wwsubs[1])
-    :subscribe(hs.windowwatcher.windowHidden,self.wwsubs[2])
-    :subscribe(hs.windowwatcher.windowMoved,self.wwsubs[3])
+  self.ww:subscribe(windowwatcher.windowShown,self.wwsubs[1])
+    :subscribe(windowwatcher.windowHidden,self.wwsubs[2])
+    :subscribe(windowwatcher.windowMoved,self.wwsubs[3])
   return self:start()
 end
 
@@ -375,37 +378,38 @@ function windowlayouts:resetAll()
   self:refreshWindows()
 end
 
---- hs.windowlayouts.new(windowfilter,...) -> hs.windowlayouts
+--- hs.windowlayouts.new(windowwatcher,...) -> hs.windowlayouts
 --- Function
---- Creates a new `hs.windowlayouts` instance. It uses an `hs.windowfilter` object to only affect specific windows
+--- Creates a new `hs.windowlayouts` instance. It uses an `hs.windowwatcher` object to only affect specific windows
 ---
 --- Parameters:
----  * windowfilter - if all parameters are nil (as in `myww=hs.windowlayout.new()`), the default windowfilter will be used for this windowlayout
---                  - if the first parameter is an already instanced `hs.windowfilter` object, then it will be used for this windowlayout
----                 - otherwise all parameters are passed to `hs.windowfilter.new` to create a new instance
----  * ... - (optional) additional arguments passed to `hs.windowfilter.new`
+---  * windowwatcher - if all parameters are nil (as in `mywl=hs.windowlayouts.new()`), the default windowwatcher will be used
+---                   - otherwise, it can be an `hs.windowwatcher` object, or an `hs.windowfilter` object that will be used to build the windowwatcher
+---                   - if none of the above, all parameters are passed to `hs.windowwatcher.new` to create a new instance
+---  * ... - (optional) additional arguments passed to `hs.windowwatcher.new`
 ---
 --- Returns:
 ---  * a new `hs.windowlayouts` instance
-
-windowlayouts.new = function(windowfilter,...)
+local function allnil(...)
+  local n=select('#',...)
+  for i=1,n do if select(i,...)~=nil then return end end
+  return true
+end
+windowlayouts.new = function(ww,...)
   local o = setmetatable({layouts={}},{__index=windowlayouts})
-  if windowfilter==nil then
-    local allnil=true
-    for i=1,select('#',...) do
-      if select(i,...)~=nil then allnil=false break end
+  if ww==nil then
+    if allnil(...) then
+      log.i('new windowlayouts using default windowwatcher')
+      o.ww = windowwatcher.default
     end
-    if allnil then
-      log.i('using default windowfilter')
-      o.ww=hs.windowwatcher.default
-    end
+  elseif type(ww)=='table' and type(ww.getWindows)=='function' then
+    log.i('new windowlayouts using a windowwatcher instance')
+    o.ww = ww
   end
   if not o.ww then
-    o.ww=hs.windowwatcher.new(windowfilter,...)
+    log.i('new windowlayouts, creating windowwatcher')
+    o.ww = windowwatcher.new(ww,...)
   end
-  --    :subscribe(hs.windowwatcher.windowShown,function(w,a)windowlayout.windowShown(o,w,a)end)
-  --    :subscribe(hs.windowwatcher.windowHidden,function(w,a)windowlayout.windowHidden(o,w,a)end)
-  --    :subscribe(hs.windowwatcher.windowMoved,function(w,a)windowlayout.windowMoved(o,w,a)end)
   return o
 end
 
