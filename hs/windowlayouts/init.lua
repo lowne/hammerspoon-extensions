@@ -64,7 +64,7 @@ end
 
 
 --returns an existing table for the newly created window, or nil if not found
-function windowlayouts:findMatchingWindow(appname,win,role,title)
+function windowlayouts:findMatchingWindow(appname,win,role,title,matchshape)
   local frame = win:frame()
   local savedWindows = self.windows[appname]
   local found
@@ -79,7 +79,7 @@ function windowlayouts:findMatchingWindow(appname,win,role,title)
       elseif #title>2 and title==savedwin.title then
         log.df('title match for %s [%s]: %s',role,appname,title)
         return savedwin
-      else
+      elseif matchshape then
         -- otherwise, match the best fitting window (if reasonably similar in shape/size)
         local area = frame.w*frame.h
         local aspect = frame.w/frame.h
@@ -104,15 +104,23 @@ function windowlayouts:findMatchingWindow(appname,win,role,title)
   return found
 end
 
+local function getSavedWindowNoApp(t,id)
+  for _,windows in pairs(t) do
+    for _,w in ipairs(windows) do
+      if w.id==id then return w end
+    end
+  end
+end
 
 local function getSavedWindow(t,id)
-  if not t then return end
+  --  if not t then return end
   for _,w in ipairs(t) do
     if w.id==id then return w end
   end
 end
 
 function windowlayouts:windowMoved(win,appname)
+  if not appname then return end
   if instances[self]~=true then return end -- skip when paused
   if self.automode and self.duringAutoLayout then log.v('auto mode layout in progress') return end -- skip during autolayout phase
   local f = win:frame()
@@ -124,17 +132,18 @@ function windowlayouts:windowMoved(win,appname)
 end
 
 function windowlayouts:windowShown(win,appname)
+  if not appname then log.d('Window shown, no appname') return end
   if instances[self]~=true then return end -- skip when paused
   self.windows[appname]=self.windows[appname] or {}
   local role = win:subrole()
   local id = win:id()
-  if getSavedWindow(self.windows[appname],id) then
+  if not self.duringAutoLayout and getSavedWindow(self.windows[appname],id) then
     -- already registered
     log.vf('%s %d (%s) already registered',role,id,appname)
     return
   end
   local title = ssub(win:title(),1,40)
-  local matched = self:findMatchingWindow(appname,win,role,title)
+  local matched = self:findMatchingWindow(appname,win,role,title,not self.duringAutoLayout)
   local t = matched or win:frame()
   t.id=id t.role=role t.title=title t.time=time()
   if not matched then
@@ -155,8 +164,9 @@ function windowlayouts:windowShown(win,appname)
 end
 
 function windowlayouts:windowHidden(win,appname)
-  if not self.windows then return end -- FIXME crashes sometimes, but it never should
-  local t = getSavedWindow(self.windows[appname],win:id())
+  --  if not appname then return end
+  --  if not self.windows then return end -- FIXME crashes sometimes, but it never should
+  local t = appname and getSavedWindow(self.windows[appname],win:id()) or getSavedWindowNoApp(self.windows,win:id())
   if t then
     log.f('deregistered %s: %s',t.role,t.title)
     t.id = nil

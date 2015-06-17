@@ -378,6 +378,20 @@ appWindowEvent=function(win,event,_,appname,retry)
 end
 local appWatcherDelayed={}
 
+--[[
+--FIXME for when the 'missing pid' bug is fixed
+local function startAppWatcher(app,appname)
+  if not app or not appname then log.e('Called startAppWatcher with no app') return end
+  if apps[appname] then log.df('App %s already registered',appname) return end
+  if app:kind()<0 or not isGuiApp(appname) then log.df('App %s has no GUI',appname) return end
+  local watcher = app:newWatcher(appWindowEvent,appname)
+  watcher:start({hsuiwatcher.windowCreated,hsuiwatcher.focusedWindowChanged})
+  App.new(app,appname,watcher)
+  if not watcher._element.pid then
+    log.f('No accessibility pid for app %s',(appname or '[???]'))
+  end
+end
+--]]
 local function startAppWatcher(app,appname,retry)
   if not app or not appname then log.e('Called startAppWatcher with no app') return end
   if apps[appname] then log.df('App %s already registered',appname) return end
@@ -391,7 +405,6 @@ local function startAppWatcher(app,appname,retry)
     if retry>5 then return log.wf('STILL no accessibility pid for app %s, giving up',(appname or '[???]')) end
     log.df('No accessibility pid for app %s',(appname or '[???]'))
     appWatcherDelayed[appname]=delayed.doAfter(appWatcherDelayed[appname],0.2*retry,startAppWatcher,app,appname,retry)
-
   end
 end
 
