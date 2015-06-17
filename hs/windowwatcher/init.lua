@@ -392,9 +392,9 @@ local function startAppWatcher(app,appname)
   end
 end
 --]]
-local function startAppWatcher(app,appname,retry)
+local function startAppWatcher(app,appname,retry,takeiteasy)
   if not app or not appname then log.e('Called startAppWatcher with no app') return end
-  if apps[appname] then log.df('App %s already registered',appname) return end
+  if apps[appname] then return not takeiteasy and log.df('App %s already registered',appname) end
   if app:kind()<0 or not isGuiApp(appname) then log.df('App %s has no GUI',appname) return end
   local watcher = app:newWatcher(appWindowEvent,appname)
   if watcher._element.pid then
@@ -402,7 +402,7 @@ local function startAppWatcher(app,appname,retry)
     App.new(app,appname,watcher)
   else
     retry=(retry or 0)+1
-    if retry>5 then return log.wf('STILL no accessibility pid for app %s, giving up',(appname or '[???]')) end
+    if retry>5 then return not takeiteasy and log.wf('STILL no accessibility pid for app %s, giving up',(appname or '[???]')) end
     log.df('No accessibility pid for app %s',(appname or '[???]'))
     appWatcherDelayed[appname]=delayed.doAfter(appWatcherDelayed[appname],0.2*retry,startAppWatcher,app,appname,retry)
   end
@@ -411,16 +411,19 @@ end
 local function appEvent(appname,event,app,retry)
   local sevent={[0]='launching','launched','terminated','hidden','unhidden','activated','deactivated'}
   log.vf('Received app %s for %s',sevent[event],appname)
-  if event==hsappwatcher.launched then return startAppWatcher(app,appname) end
+  if not appname then return end
+  if event==hsappwatcher.launched then return startAppWatcher(app,appname)
+  elseif event==hsappwatcher.launching then return end
   local appo=apps[appname]
   if event==hsappwatcher.activated then
     if appo then return appo:activated() end
+    --    if true then return end
     retry = (retry or 0)+1
     if retry==1 then
-      log.df('First attempt at registering app %s',appname)
-      startAppWatcher(app,appname,5)
+      log.vf('First attempt at registering app %s',appname)
+      startAppWatcher(app,appname,5,true)
     end
-    if retry>5 then return log.ef('App %s still is not registered!',appname) end
+    if retry>5 then return log.df('App %s still is not registered!',appname) end
     return delayed.doAfter(0.1*retry,appEvent,appname,event,_,retry)
   end
   if not appo then return log.ef('App %s is not registered!',appname) end
