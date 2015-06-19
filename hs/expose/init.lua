@@ -61,7 +61,8 @@ function grab_windows.grabAll()
 end
 
 function grab_windows.stop()
-  ww:stop()
+  --  ww:stop()
+  ww:unsubscribe(capture)
 end
 
 function grab_windows.start()
@@ -71,7 +72,7 @@ function grab_windows.start()
     if ok then glog.i('Created RAMdrive at '..ramdriveDir)
     else error('Cannot create RAMdrive: '..res) end
   end
-  ww:start()
+  --  ww:start()
   grab_windows.grabAll()
   return grab_windows
 end
@@ -472,7 +473,7 @@ local HINTWIDTH,HINTHEIGTH= 30,45
 function expose.switchedToSpace(space)
   local tempinstance=activeInstance
   if activeInstance then exitAll() end
-  grab.switchedToSpace(space,function()
+  grab_windows.switchedToSpace(space,function()
     if not tempinstance then return end
     if tempinstance.ww then
       hs.windowwatcher.switchedToSpace(space,function()tempinstance:expose()end)

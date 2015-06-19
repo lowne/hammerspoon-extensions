@@ -300,80 +300,39 @@ local function stopGlobal()
   screenwatcher.unsubscribe({enumScreens,screensChanged})
 end
 
---- hs.windowlayouts:start() -> hs.windowlayouts
---- Method
---- Starts an `hs.windowlayouts` instance
----
---- Returns:
----  * the instance, for method chaining
-function windowlayouts:start()
-  if instances[self] then log.i('instance was already started, ignoring') return end
+local function start(self)
+if instances[self] then log.i('instance was already started, ignoring') return end
   startGlobal()
-  if not screenGeometry then doAfter(1,windowlayouts.start,self) return self end
+  if not screenGeometry then doAfter(1,start,self) return self end
   log.i('start')
   self:removeIDs()
   instances[self] = true
-  self.ww:start()
+--  self.ww:start()
   self:refreshWindows()
   return self
 end
 
---- hs.windowlayouts:startAutoMode() -> hs.windowlayouts
+--- hs.windowlayouts:delete() -> hs.windowlayouts
 --- Method
---- Starts an `hs.windowlayouts` instance in automatic mode.
---- As you move windows around, the window layout is automatically saved internally for the current screen configuration;
---- when screen changes are detected, the appropriate layout is automatically applied to current and future windows.
---- In practice this means that when e.g. you connect your laptop to your triple-monitor setup at your desk,
---- all the windows (including those that will be opened later) will be restored to exactly where they were
----  when you last left your desk - and vice versa.
----
---- Returns:
----  * the instance, for method chaining
-function windowlayouts:startAutoMode()
-  if instances[self] then log.i('instance was already started, ignoring') return end
-  -- only one automode instance allowed
-  for wl in pairs(instances) do
-    if wl.automode then log.e('only one automode instance is allowed') return end
-  end
-  log.i('start auto mode')
-  self.automode = true
-  self:loadSettings()
-  self.wwsubs={
-    function(w,a)self:windowShown(w,a)end,
-    function(w,a)self:windowHidden(w,a)end,
-    function(w,a)self:windowMoved(w,a)end
-  }
-  self.ww:subscribe(windowwatcher.windowShown,self.wwsubs[1])
-    :subscribe(windowwatcher.windowHidden,self.wwsubs[2])
-    :subscribe(windowwatcher.windowMoved,self.wwsubs[3])
-  return self:start()
-end
-
---- hs.windowlayouts:stop() -> hs.windowlayouts
---- Method
---- Stops an `hs.windowlayouts` instance (for cleanup)
----
---- Returns:
----  * the instance, for method chaining
-function windowlayouts:stop()
+--- Deletes an `hs.windowlayouts` instance (for cleanup)
+function windowlayouts:delete()
   log.i('stop')
   instances[self] = nil
   self.automode = nil
-  self.ww:unsubscribe(self.wwsubs):stop()
+  if self.wwsubs then self.ww:unsubscribe(self.wwsubs) end
   stopGlobal()
-  return self
 end
 
 --- hs.windowlayouts:pause() -> hs.windowlayouts
 --- Method
---- Pauses the instance
+--- Pauses the autolayout mode instance
 ---
 --- Returns:
 ---  * the instance, for method chaining
 
 --- hs.windowlayouts:resume() -> hs.windowlayouts
 --- Method
---- Resumes the instance
+--- Resumes the autolayout mode instance
 ---
 --- Returns:
 ---  * the instance, for method chaining
@@ -405,7 +364,7 @@ local function allnil(...)
   for i=1,n do if select(i,...)~=nil then return end end
   return true
 end
-windowlayouts.new = function(ww,...)
+local function new(ww,...)
   local o = setmetatable({layouts={}},{__index=windowlayouts})
   if ww==nil then
     if allnil(...) then
@@ -423,5 +382,49 @@ windowlayouts.new = function(ww,...)
   return o
 end
 
+function windowlayouts.new(ww,...)
+  startGlobal()
+  return start(new(ww,...))
+end
+
+--- hs.windowlayouts.autolayout.new(windowwatcher,...) -> hs.windowlayouts
+--- Method
+--- Creates a new `hs.windowlayouts` instance in autolayout mode. . It uses an `hs.windowwatcher` object to only affect specific windows.
+--- As you move windows around, the window layout is automatically saved internally for the current screen configuration;
+--- when screen changes are detected, the appropriate layout is automatically applied to current and future windows.
+--- In practice this means that when e.g. you connect your laptop to your triple-monitor setup at your desk,
+--- all the watched windows (including those that will be opened later) will be restored to exactly where they were
+--- when you last left your desk - and vice versa.
+---
+--- Parameters:
+---  * windowwatcher - if all parameters are nil (as in `mywl=hs.windowlayouts.autolayout.new()`), the default windowwatcher will be used
+---                   - otherwise, it can be an `hs.windowwatcher` object, or an `hs.windowfilter` object that will be used to build the windowwatcher
+---                   - if none of the above, all parameters are passed to `hs.windowwatcher.new` to create a new instance
+---  * ... - (optional) additional arguments passed to `hs.windowwatcher.new`
+---
+--- Returns:
+---  * a new `hs.windowlayouts` instance
+windowlayouts.autolayout={}
+function windowlayouts.autolayout.new(ww,...)
+  startGlobal()
+  local self=new(ww,...)
+  -- only one automode instance allowed
+  -- scratch that, let's allow multiple
+--  for wl in pairs(instances) do
+--    if wl.automode then log.e('only one automode instance is allowed') return end
+--  end
+  log.i('start auto mode')
+  self.automode = true
+  self:loadSettings()
+  self.wwsubs={
+    function(w,a)self:windowShown(w,a)end,
+    function(w,a)self:windowHidden(w,a)end,
+    function(w,a)self:windowMoved(w,a)end
+  }
+  self.ww:subscribe(windowwatcher.windowShown,self.wwsubs[1])
+    :subscribe(windowwatcher.windowHidden,self.wwsubs[2])
+    :subscribe(windowwatcher.windowMoved,self.wwsubs[3])
+  return start(self)
+end
 return windowlayouts
 

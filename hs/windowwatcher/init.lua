@@ -497,6 +497,19 @@ local function unsubscribeEvent(self,event)
   self.events[event]=nil
   return self
 end
+
+
+local function start(self)
+  if watchers[self]==true then return end
+  startGlobalWatcher()
+  watchers[self]=true
+  for appname,app in pairs(apps) do
+    for _,window in pairs(app.windows) do
+      window:setWWatcher(self)
+    end
+  end
+end
+
 --- hs.windowwatcher:getWindows() -> table
 --- Method
 --- Gets the list of windows being watched
@@ -504,6 +517,7 @@ end
 --- Returns:
 ---  * a list of `hs.window` objects that are being watched
 function windowwatcher:getWindows()
+  start(self)
   local t={}
   for appname,app in pairs(apps) do
     for _,window in pairs(app.windows) do
@@ -516,6 +530,7 @@ function windowwatcher:getWindows()
   tsort(t,function(a,b)return a:id()<b:id()end)
   return t
 end
+
 
 --- hs.windowwatcher:subscribe(event,fn)
 --- Method
@@ -530,6 +545,7 @@ end
 --- Returns:
 ---  * the `hs.windowwatcher` object for method chaining
 function windowwatcher:subscribe(event,fn)
+  start(self)
   if type(event)=='string' then return subscribe(self,event,fn)
   elseif type(event)=='table' then
     for _,e in ipairs(event) do
@@ -563,6 +579,7 @@ function windowwatcher:unsubscribe(fn)
     elseif type(e)=='function' then unsubscribe(self,e)
     else error('fn must be a function, string, or a table of functions or strings',2) end
   end
+  if not next(self.events) then return self:unsubscribeAll() end
   return self
 end
 
@@ -577,35 +594,35 @@ end
 ---  * You should not use this on the default windowwatcher or other shared windowwatchers
 function windowwatcher:unsubscribeAll()
   self.events={}
+  self:pause()
   return self
 end
 
 
-local function filterWindows(self)
-  for appname,app in pairs(apps) do
-    for _,window in pairs(app.windows) do
-      window:setWWatcher(self)
-    end
-  end
+
+--- hs.windowwatcher:resume()
+--- Method
+--- Resumes the windowwatcher
+function windowwatcher:resume()
+  if watchers[self]==true then log.i('instance already running, ignoring') return end
+  start(self)
 end
 
---- hs.windowwatcher:start()
+--- hs.windowwatcher:pause()
 --- Method
---- Starts the windowwatcher; after calling this, all subscribed events will trigger their callback
-function windowwatcher:start()
-  if watchers[self]==true then log.i('instance was already started, ignoring') return end
-  startGlobalWatcher()
-  watchers[self]=true
-  filterWindows(self)
-end
-
---- hs.windowwatcher:stop()
---- Method
---- Stops the windowwatcher; no more event callbacks will be triggered, but the subscriptions remain intact for a subsequent call to `hs.windowwatcher:start()`
-function windowwatcher:stop()
+--- Stops the windowwatcher; no more event callbacks will be triggered, but the subscriptions remain intact for a subsequent call to `hs.windowwatcher:resume()`
+function windowwatcher:pause()
   watchers[self]=nil
   stopGlobalWatcher()
 end
+
+
+function windowwatcher:delete()
+  watchers[self]=nil
+  self.events={}
+  stopGlobalWatcher()
+end
+
 
 local spacesDone = {}
 function windowwatcher.switchedToSpace(space,cb)
