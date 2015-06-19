@@ -226,24 +226,48 @@ function windowlayouts:getLayout()
   return self.windows, screenGeometry
 end
 
+--- hs.windowlayouts:saveLayout(key)
+--- Method
+--- Convenience function to save the current window layout via `hs.settings.set`
+---
+--- Parameters:
+---   * key - a string to identify, in conjunction with the current screen geometry, the current screen layout;
+--            it can then be used with `hs.windowlayouts:applyLayout`
+function windowlayouts:saveLayout(key)
+  self.layouts={} self:refreshWindows()
+  settings.set(key..screenGeometry,self.windows)
+  log.i('layout saved to '..key..screenGeometry)
+end
+
 --- hs.windowlayouts:applyLayout(layout)
 --- Method
 --- Applies a previously saved window layout to the current windows
 ---
 --- Parameters:
----  * layouts - a table containing the window layout to apply, as returned by `hs.windowlayout.getLayout`
+---  * layout - it can be:
+---              * a table containing the window layout to apply, as returned by `hs.windowlayouts:getLayout`
+---              * a string used previously as key with `hs.windowlayouts:saveLayout`
 ---
 --- Notes:
 ---  * This won't work for instances that have been started in auto mode
-function windowlayouts:applyLayout(layout)
-  if self.automode then log.e('Cannot manually apply a layout in auto mode') return end
-  if type(layout)~='table' then error('layout must be a table',2) return end
-
+local function applyLayout(self,layout)
   self.layouts[screenGeometry] = layout
   self:removeIDs()
   self.automode = true
   self:refreshWindows()
   self.automode = nil
+end
+
+function windowlayouts:applyLayout(layout)
+  if self.automode then log.e('Cannot manually apply a layout in autolayout mode') return end
+  if type(layout)=='string' then
+    local key=layout..screenGeometry
+    layout=settings.get(key)
+    if not layout then log.ef('layout key %s not found',key) return
+    else log.df('applying layout from key %s',key) end
+  end
+  if type(layout)~='table' then error('layout must be a table',2) return end
+  return applyLayout(self,layout)
 end
 
 function windowlayouts:refreshWindows()
@@ -301,13 +325,13 @@ local function stopGlobal()
 end
 
 local function start(self)
-if instances[self] then log.i('instance was already started, ignoring') return end
+  if instances[self] then log.i('instance was already started, ignoring') return end
   startGlobal()
   if not screenGeometry then doAfter(1,start,self) return self end
   log.i('start')
   self:removeIDs()
   instances[self] = true
---  self.ww:start()
+  --  self.ww:start()
   self:refreshWindows()
   return self
 end
@@ -389,7 +413,7 @@ end
 
 --- hs.windowlayouts.autolayout.new(windowwatcher,...) -> hs.windowlayouts
 --- Method
---- Creates a new `hs.windowlayouts` instance in autolayout mode. . It uses an `hs.windowwatcher` object to only affect specific windows.
+--- Creates a new `hs.windowlayouts` instance in autolayout mode. It uses an `hs.windowwatcher` object to only affect specific windows.
 --- As you move windows around, the window layout is automatically saved internally for the current screen configuration;
 --- when screen changes are detected, the appropriate layout is automatically applied to current and future windows.
 --- In practice this means that when e.g. you connect your laptop to your triple-monitor setup at your desk,
@@ -410,9 +434,9 @@ function windowlayouts.autolayout.new(ww,...)
   local self=new(ww,...)
   -- only one automode instance allowed
   -- scratch that, let's allow multiple
---  for wl in pairs(instances) do
---    if wl.automode then log.e('only one automode instance is allowed') return end
---  end
+  --  for wl in pairs(instances) do
+  --    if wl.automode then log.e('only one automode instance is allowed') return end
+  --  end
   log.i('start auto mode')
   self.automode = true
   self:loadSettings()
