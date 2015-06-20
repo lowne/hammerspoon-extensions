@@ -6,7 +6,7 @@
 --
 --TODO /// hs.drawing:setClickCallback(fn) -> drawingObject
 
-
+local expose={} --module
 
 ----------------------------------------------------
 -- this stuff should go away, in favour of a native windowgrabber+hs.drawing from RAM
@@ -79,13 +79,13 @@ end
 
 --local grab=require'grab_windows'.start()
 grab_windows.start()
-
+expose.stop=function()grab_windows.stop()end
 -- end of stuff that should go away
 -------------------------------------------------------------
 
 local drawing=require'hs.drawing'
 local log=require'hs.logger'.new('expose')
-local expose={setLogLevel=function(lvl)log.setLogLevel(lvl)end} -- module
+function expose.setLogLevel(lvl)log.setLogLevel(lvl)end
 local newmodal=require'hs.hotkey'.modal.new
 local tinsert,tremove,min,max,ceil,abs,fmod,floor=table.insert,table.remove,math.min,math.max,math.ceil,math.abs,math.fmod,math.floor
 local next,type,ipairs,pairs,setmetatable,sformat,supper,ssub,tostring=next,type,ipairs,pairs,setmetatable,string.format,string.upper,string.sub,tostring
@@ -578,5 +578,6 @@ function expose.new(windowfilter,iterations)
   if not windowfilter and not windowwatcher then error('windowfilter must be nil, a hs.windowfilter object, or a hs.windowwatcher object') end
   return setmetatable({wf=windowfilter,ww=windowwatcher,iterations=iterations},{__index=expose})
 end
+
 return expose
   
