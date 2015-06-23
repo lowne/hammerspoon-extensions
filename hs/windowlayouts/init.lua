@@ -6,7 +6,7 @@
 
 --TODO constructors with a list of allowed appnames all the way down (watcher,filter)
 
-local next,ipairs,pairs,tinsert,tsort,ssub,time,sformat=next,ipairs,pairs,table.insert,table.sort,string.sub,os.time,string.format
+local next,ipairs,pairs,tinsert,tsort,ssub,sbyte,time,sformat=next,ipairs,pairs,table.insert,table.sort,string.sub,string.byte,os.time,string.format
 local windowwatcher=require'hs.windowwatcher'
 local screenwatcher=require'hs.screenwatcher'
 local settings=require'hs.settings'
@@ -62,9 +62,58 @@ end
 
 
 
-
+function windowlayouts:findMatchingWindow(appname,win,role,title)
+  local allwins,wins = self.windows[appname],{}
+  for _,w in ipairs(allwins) do
+    if not w.id and role==w.role then wins[#wins+1]=w end
+  end
+  if #wins==0 then
+    -- no candidates
+    log.df('no match for %s [%s]: %s',role,appname,title)
+    return
+  end
+  local frame=win:frame()
+  -- first, search for matching frames
+  for i,sw in ipairs(wins) do
+    if frameEqual(frame,sw) then
+      log.df('frame match (%d/%d) for %s [%s]: %s',i,#allwins,role,appname,title)
+      return sw
+    end
+  end
+  -- search for matching title
+  if #title>1 then
+    for i,sw in ipairs(wins) do
+      if title==sw.title then
+        log.df('title match (%d/%d) for %s [%s]: %s',i,#allwins,role,appname,title)
+        return sw
+      end
+    end
+  end
+  -- match best fitting window (if reasonably similar in shape/size)
+  local bestmatch,ifound,found=0.75
+  for i,sw in ipairs(wins) do
+    local area = frame.w*frame.h
+    local aspect = frame.w/frame.h
+    local sarea = sw.w*sw.h
+    local saspect = sw.w/sw.h
+    local areamatch=area<sarea and area/sarea or sarea/area
+    local aspectmatch = aspect<saspect and aspect/saspect or saspect/aspect
+    local match=areamatch*aspectmatch
+    if match>bestmatch then
+      bestmatch=match
+      found=sw ifound=i
+    end
+  end
+  if found then
+    log.df('shape match (%d/%d) for %s [%s]: %s',ifound,#allwins,role,appname,title)
+    return found
+  end
+  -- return the first of the remaining candidates
+  log.df('last match (%d/%d) for %s [%s]: %s',1,#allwins,role,appname,title)
+  return wins[1]
+end
 --returns an existing table for the newly created window, or nil if not found
-function windowlayouts:findMatchingWindow(appname,win,role,title,matchshape)
+function windowlayouts:OLDfindMatchingWindow(appname,win,role,title,pass)
   local frame = win:frame()
   local savedWindows = self.windows[appname]
   local found
@@ -72,14 +121,14 @@ function windowlayouts:findMatchingWindow(appname,win,role,title,matchshape)
   for i,savedwin in ipairs(savedWindows) do
     if not savedwin.id and role==savedwin.role then
       -- first, search for matching frames
-      if frameEqual(frame,savedwin) then
+      if pass==1 and frameEqual(frame,savedwin) then
         log.df('frame match for %s [%s]: %s',role,appname,title)
         return savedwin
           -- search for matching (meaningful) title
-      elseif #title>2 and title==savedwin.title then
+      elseif pass==2 and #title>2 and title==savedwin.title then
         log.df('title match for %s [%s]: %s',role,appname,title)
         return savedwin
-      elseif matchshape then
+      elseif pass==3 then
         -- otherwise, match the best fitting window (if reasonably similar in shape/size)
         local area = frame.w*frame.h
         local aspect = frame.w/frame.h
@@ -92,6 +141,9 @@ function windowlayouts:findMatchingWindow(appname,win,role,title,matchshape)
           bestmatch = match
           found = savedwin
         end
+      elseif pass==4 then
+        -- match anything that remains
+        return savedwin
       end
     end
   end
@@ -143,7 +195,15 @@ function windowlayouts:windowShown(win,appname)
     return
   end
   local title = ssub(win:title(),1,40)
-  local matched = self:findMatchingWindow(appname,win,role,title,not self.duringAutoLayout)
+  if #title==0 then title=' '
+  else
+    while (sbyte(title,#title))>127 do
+      title=ssub(title,1,#title-1)
+      if #title==0 then title=' ' end
+    end
+  end
+  --  local matched = self:findMatchingWindow(appname,win,role,title,not self.duringAutoLayout)
+  local matched = self:findMatchingWindow(appname,win,role,title)
   local t = matched or win:frame()
   t.id=id t.role=role t.title=title t.time=time()
   if not matched then
@@ -151,10 +211,11 @@ function windowlayouts:windowShown(win,appname)
     log.df('registered %s [%s %d/%d]: %s',role,appname,i,#self.windows[appname],title)
     if self.automode then self:saveSettings() end
   else
-    if self.automode then
+    if self.automode or self.duringAutoLayout then
       win:setFrame(t,0)
       log.df('%s (%s) <= %d,%d [%dx%d]',t.role,appname,t.x,t.y,t.w,t.h)
     else
+      print('------------- NEVAH!')
       -- update with current frame
       log.df('%s (%s) -> %d,%d [%dx%d]',t.role,appname,t.x,t.y,t.w,t.h)
       local f=win:frame()
@@ -253,9 +314,9 @@ end
 local function applyLayout(self,layout)
   self.layouts[screenGeometry] = layout
   self:removeIDs()
-  self.automode = true
+  self.duringAutoLayout = true
   self:refreshWindows()
-  self.automode = nil
+  self.duringAutoLayout = nil
 end
 
 function windowlayouts:applyLayout(layout)

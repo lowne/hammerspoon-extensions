@@ -663,7 +663,7 @@ function windowwatcher.new(wf,...)
       log.i('new windowwatcher using default windowfilter')
       o.windowfilter=windowfilter.default
     end
-  elseif type(wf)=='table' and type(wf.isWindowAllwed)=='function' then
+  elseif type(wf)=='table' and type(wf.isWindowAllowed)=='function' then
     log.i('new windowwatcher using a windowfilter instance')
     o.windowfilter=wf
   end

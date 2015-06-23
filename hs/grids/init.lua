@@ -16,7 +16,7 @@ local log = require'hs.logger'.new('grids')
 local grids = {setLogLevel = function(lvl) log.setLogLevel(lvl)end} -- module
 
 local screens, currentScreen, currentWindow, highlight = {}
-local HINTS={{'F1','F2','F3','F4','F5','F6','F7','F8'},
+local HINTS={{'f1','f2','f3','f4','f5','f6','f7','f8'},
   {'1','2','3','4','5','6','7','8'},
   {'Q','W','E','R','T','Y','U','I'},
   {'A','S','D','F','G','H','J','K'},

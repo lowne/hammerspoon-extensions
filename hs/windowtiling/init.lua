@@ -7,6 +7,8 @@ local tremove,tsort,ipairs,pairs,min = table.remove,table.sort,ipairs,pairs,math
 local focusedWindow=require'hs.window'.focusedWindow
 local orderedWindows=require'hs.window'.orderedWindows
 local sleep=require'hs.timer'.usleep
+local windowfilter,windowwatcher,windowlayouts=require'hs.windowfilter',require'hs.windowwatcher',require'hs.windowlayouts'
+
 local function intersects(rect1,rect2)
   local r = intersectionRect(rect1,rect2)
   return (r.w*r.h)>0
@@ -33,7 +35,7 @@ local function closestWindows(w,dir,wins)
   end
   tsort(res,function(a,b) return a.d<b.d end)
   local r={}
-  for _,e in ipairs(res) do r[#r+1]=e.w hs.alert('distance '..e.d/100)end
+  for _,e in ipairs(res) do r[#r+1]=e.w end
   return r
 end
 
@@ -142,6 +144,8 @@ local function makeRow(wins,rectToFill,isVertical)
   end
   return row,orthoSide,aspect
 end
+
+-- based on http://www.win.tue.nl/~vanwijk/stm.pdf
 local function tileWindows(windows)
   local isVertical = windows.isVertical
   local irow = 1
@@ -210,29 +214,65 @@ function windowtiling:tileWindows()
   end
 end
 
-
-
-function windowtiling.new(windowfilter)
-  local windowwatcher
-  if windowfilter==nil then
-    windowfilter=hs.windowfilter.default
-  elseif type(windowfilter)=='table' then
-    if windowfilter.isWindowAllowed then
-    elseif windowfilter.getWindows then
-      windowwatcher=windowfilter windowfilter=nil
-    else windowfilter=nil end
+function windowtiling:toggleTiling()
+  if self.istiling then
+    --undo tiling
+    self.wl:applyLayout(self.savedLayout)
+  else
+    -- save layout, tile windows
+    if not self.wl then
+      --      if not self.ww then self.ww=windowwatcher.new(self.wf) end
+      self.wl=windowlayouts.new(self.ww or self.wf)
+    end
+    self.savedLayout=self.wl:getLayout()
+    self:tileWindows()
   end
-  if not windowfilter and not windowwatcher then error('windowfilter must be nil, a hs.windowfilter object, or a hs.windowwatcher object') end
-  return setmetatable({wf=windowfilter,ww=windowwatcher},{__index=windowtiling})
+  self.istiling = not self.istiling
+end
+
+function windowtiling:delete()
+  if self.ww then self.ww:unsubscribe(self.doTile) end
+  if self.wl then self.wl:delete() end
+end
+
+local function allnil(...)
+  local n=select('#',...)
+  for i=1,n do if select(i,...)~=nil then return end end
+  return true
+end
+
+function windowtiling.new(wf,...)
+  local o=setmetatable({},{__index=windowtiling})
+  if wf==nil then
+    if allnil(...) then
+      log.i('new windowtiling using default windowfilter')
+      o.wf=windowfilter.default
+    end
+  elseif type(wf)=='table' then
+    if type(wf.getWindows)=='function' then
+      log.i('new windowtiling using a windowwatcher instance')
+      o.ww=wf
+    elseif type(wf.isWindowAllowed)=='function' then
+      log.i('new windowtiling using a windowfilter instance')
+      o.wf=wf
+    end
+  end
+  if not o.wf and not o.ww then
+    log.i('new windowtiling, creating windowfilter')
+    o.wf=windowfilter.new(wf,...)
+  end
+  return o
+end
+
+function windowtiling.newAutoTile(wf)
+  local o=windowtiling.new(wf)
+  if not o.ww then o.ww=windowwatcher.new(o.wf) end
+  o.doTile=function()windowtiling.tileWindows(o)end
+  o.ww:subscribe({windowwatcher.windowShown,windowwatcher.windowHidden,windowwatcher.windowMoved},o.doTile)
 end
 
 for _,d in ipairs{'North','South','East','West'}do
   windowtiling['focus'..d]=function(self,excludeintersecting,closest) self:focus(d,excludeintersecting,closest)end
 end
-
---function windowtiling:focusNorth(all)self:focus('North',all)end
---function windowtiling:focusSouth(all)self:focus('South',all)end
---function windowtiling:focusEast(all)self:focus('East',all)end
---function windowtiling:focusWest(all)self:focus('West',all)end
 
 return windowtiling
