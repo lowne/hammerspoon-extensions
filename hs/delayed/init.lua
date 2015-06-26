@@ -1,9 +1,8 @@
 --- === hs.delayed ===
 ---
---- Simple helper for delayed callbacks
+--- Simple helper for delayed, cancellable callbacks
 
 -- * Needs a native gettime(): https://developer.apple.com/library/mac/documentation/Cocoa/Reference/Foundation/Classes/NSDate_Class/index.html#//apple_ref/occ/instp/NSDate/timeIntervalSince1970
--- * The API is kept super simple; perhaps a proper transactional taskqueue would be useful? What use cases?
 -- * Debugging can get difficult; ideally this should be fixed (either via explicit params, or better via debug.getinfo)
 
 local gettime=require'socket'.gettime --FIXME need a native hook
@@ -80,11 +79,11 @@ end
 ---  * id - a callback id that can be used to cancel this scheduled callback
 ---
 --- Usage:
---- ```local coalescedCallback
+--- local coalescedCallback
 --- local function callbackForIncomingDelugeOfEvents(event)
 ---   coalescedCallback = hs.delayed.doAfter(coalescedCallback, 1, doStuff, event)
 ---   -- will only process the last event, after there have been no new incoming events for 1 second
---- end```
+--- end
 
 function delayed.doAfter(prev,delay,fn,...)
   local args = {...}
@@ -127,6 +126,9 @@ end
 --- Parameters:
 ---  * id - id of the callback to cancel
 ---
+--- Returns:
+---  * None
+---
 --- Notes:
 ---  * `id` can be invalid (e.g. when the callback has already fired); if so this function will just return
 
@@ -143,6 +145,12 @@ end
 --- hs.delayed.stop()
 --- Function
 --- Cancels all scheduled callbacks
+---
+--- Parameters:
+---  * None
+---
+--- Returns:
+---  * None
 
 function delayed.stop()
   if timer then timer:stop() end
