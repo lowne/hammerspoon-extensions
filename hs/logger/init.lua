@@ -8,6 +8,7 @@
 local date,time = os.date,os.time
 local format,sub=string.format,string.sub
 local select,print,concat,min=select,print,table.concat,math.min
+local fnutils=require'hs.fnutils'
 
 local          ERROR , WARNING , INFO , DEBUG , VERBOSE  =1,2,3,4,5
 local levels={'error','warning','info','debug','verbose'} levels[0]='nothing'
@@ -49,7 +50,7 @@ local function new(id,loglevel)
   id=format('%10s','['..format('%.8s',id)..']')
   local function setLogLevel(lvl)
     if type(lvl)=='string' then
-      local i = hs.fnutils.indexOf(levels,string.lower(lvl))
+      local i = fnutils.indexOf(levels,string.lower(lvl))
       if i then loglevel = i
       else error('loglevel must be one of '..table.concat(levels,', ',0,#levels),2) end
     elseif type(lvl)=='number' then
