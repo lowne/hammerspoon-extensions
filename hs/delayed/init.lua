@@ -2,7 +2,7 @@
 ---
 --- Simple helper for delayed callbacks
 
--- * Needs a native gettime()
+-- * Needs a native gettime(): https://developer.apple.com/library/mac/documentation/Cocoa/Reference/Foundation/Classes/NSDate_Class/index.html#//apple_ref/occ/instp/NSDate/timeIntervalSince1970
 -- * The API is kept super simple; perhaps a proper transactional taskqueue would be useful? What use cases?
 -- * Debugging can get difficult; ideally this should be fixed (either via explicit params, or better via debug.getinfo)
 

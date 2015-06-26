@@ -4,7 +4,7 @@
 
 -- * This module should fulfill a lot of use cases
 -- * The root and default filters should be quite handy for users; however that means ongoing maintenance on the list
---    (how many menulets are out there?)
+--   (how many menulets are out there?); alternatively (or additionally) the user should be able to expand both
 -- * Maybe an additional filter could be added for window geometry (e.g. minimum width/heigth/area)
 
 local ipairs,type,smatch,sformat,ssub = ipairs,type,string.match,string.format,string.sub
@@ -364,6 +364,7 @@ end
 --- Returns:
 ---  * `false` if the app is a known non-GUI (or not accessible) app; `true` otherwise
 
+-- TODO make this user-expandable
 windowfilter.isGuiApp = function(appname)
   if not appname then return true
   elseif appstoskip[appname] then return false
