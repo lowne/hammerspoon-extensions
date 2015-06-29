@@ -62,15 +62,23 @@ local gridSizes = {} -- user-defined grid sizes for each screen geometry
 ---    * an `hs.screen` object
 ---    * an `hs.geometry.rect` object
 ---    * a string in the format `WWWWxHHHH` where WWWW and HHHH are the screen width and heigth in pixels
+--     * if omitted, the current resolution of the main screen will be used
 --- * grid - a string in the format `CxR` where C and R are the desired number of columns and rows
 ---
 --- Returns:
 ---   * hs.grids for method chaining
 ---
 --- Usage:
---- ```hs.grids.setGrid('1920x1080','5x3') -- sets the resizing grid to 5x3 for any screens with a 1920x1080 resolution
---- hs.grids.setGrid(hs.screens.mainScreen(),'4x4') -- sets the grid to 4x4 for the main screen (at its current resolution)```
+--- hs.grids.setGrid('1920x1080','5x3') -- sets the resizing grid to 5x3 for any screens with a 1920x1080 resolution
+--- hs.grids.setGrid(hs.screens.mainScreen(),'4x4') -- sets the grid to 4x4 for the main screen (at its current resolution)
 function grids.setGrid(screen,grid)
+  if (not grid and type(screen)=='string') then
+    grid=screen
+    screen=nil
+  end
+  if screen==nil then
+    screen=require'hs.screen'.mainScreen()
+  end
   local screenFrame = toRect(screen)
   local grid = toRect(grid,true)
   if not screenFrame or not grid then error('Invalid screen/frame or grid',2)return end
@@ -232,7 +240,12 @@ end
 --- Function
 --- Shows the resizing grid and starts the modal resizing process for the focused window.
 --- In most cases this function should be invoked via `hs.hotkey.bind` with some keyboard shortcut.
-
+---
+--- Parameters:
+---  * None
+---
+--- Returns:
+---  * None
 function grids.show()
   if not initialized then _start()
   else resizing:exit() end
@@ -242,6 +255,12 @@ end
 --- hs.grids.stop()
 --- Function
 --- Cleanup when you're done (no need to call this in most cases)
+---
+--- Parameters:
+---  * None
+---
+--- Returns:
+---  * None
 function grids.stop()
   if resizing then resizing:exit() end
   screenwatcher.unsubscribe(setGrids)

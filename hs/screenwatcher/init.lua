@@ -11,9 +11,13 @@ local screenwatcher={delay=3}
 local swinstance,pwinstance
 local substarted,subdone={},{}
 local type,next,sformat,pairs,ipairs=type,next,string.format,pairs,ipairs
-local delayed,allScreens=require'hs.delayed',require'hs.screen'.allScreens
+local allScreens,_doAfter=require'hs.screen'.allScreens,require'hs.timer'.doAfter
 local hsscreenwatcher,hspowerwatcher=require'hs.screen.watcher',require'hs.caffeinate.watcher'
 local log=require'hs.logger'.new('swatcher')
+local function doAfter(prev,delay,fn)
+  if prev then prev:stop() end
+  return _doAfter(delay,fn)
+end
 
 local screensChangedDelayed
 local function screensChanged()
@@ -37,7 +41,7 @@ local function startScreensChanged()
   for fn in pairs(substarted) do
     fn(screens)
   end
-  screensChangedDelayed=delayed.doAfter(screensChangedDelayed,screenwatcher.delay,screensChanged)
+  screensChangedDelayed=doAfter(screensChangedDelayed,screenwatcher.delay,screensChanged)
 end
 
 local running
@@ -60,7 +64,8 @@ end
 --- Function
 --- Cleanup
 function screenwatcher.stop()
-  delayed.cancel(screensChangedDelayed)
+  if screensChangedDelayed then screensChangedDelayed:stop() end
+  screensChangedDelayed=nil
   log.i('Instance stopped')
   swinstance:stop() pwinstance:stop() subdone,substarted={},{} swinstance,pwinstance,running=nil
 end
