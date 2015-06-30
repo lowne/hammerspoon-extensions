@@ -40,10 +40,10 @@ local grid = setmetatable({},{
     else return rawget(t,k) end
   end,
   __newindex = function(t,k,v)
-    if k=='GRIDWIDTH' then gridSizes[1].w=v
-    elseif k=='GRIDHEIGHT' then gridSizes[1].h=v
-    elseif k=='MARGINX' then margins.w=v
-    elseif k=='MARGINY' then margins.h=v
+    if k=='GRIDWIDTH' then gridSizes[1].w=v log.f('Default grid set to %d by %d',gridSizes[1].w,gridSizes[1].h)
+    elseif k=='GRIDHEIGHT' then gridSizes[1].h=v log.f('Default grid set to %d by %d',gridSizes[1].w,gridSizes[1].h)
+    elseif k=='MARGINX' then margins.w=v log.f('Window margin set to %d,%d',margins.w,margins.h)
+    elseif k=='MARGINY' then margins.h=v log.f('Window margin set to %d,%d',margins.w,margins.h)
     else rawset(t,k,v) end
   end,
 }) -- module; metatable for legacy variables
@@ -107,7 +107,8 @@ function grid.setGrid(grid,scr)
   --    grid.w=min(grid.w,#HINTS[1]) grid.h=min(grid.h,#HINTS)
   grid.w=min(grid.w,50) grid.h=min(grid.h,50) -- cap grid to 50x50, just in case
   gridSizes[scr]=grid
-  log.f('Grid for %s set to %d by %d',tostring(scr),grid.w,grid.h)
+  if scr==1 then log.f('Default grid set to %d by %d',grid.w,grid.h)
+  else log.f('Grid for %s set to %d by %d',tostring(scr),grid.w,grid.h) end
   return grid
 end
 
@@ -127,6 +128,7 @@ function grid.setMargins(mar)
   mar=toRect(mar)
   if not mar then error('Invalid margins',2) return end
   margins=mar
+  log.f('Window margin set to %d,%d',margins.w,margins.h)
 end
 
 
@@ -205,9 +207,9 @@ function grid.get(win)
   if not winscreen then
     return nil
   end
-  local gridsize=grid.getGrid(winscreen)
+  local gridw,gridh = grid.getGrid(winscreen)
   local screenrect = win:screen():frame()
-  local cellw, cellh = screenrect.w/gridsize.w, screenrect.h/gridsize.h
+  local cellw, cellh = screenrect.w/gridw, screenrect.h/gridh
   return {
     x = round((winframe.x - screenrect.x) / cellw),
     y = round((winframe.y - screenrect.y) / cellh),
@@ -229,8 +231,11 @@ end
 ---  * None
 function grid.set(win, cell, screen)
   local screenrect = screen:frame()
-  local gridsize=grid.getGrid(screen)
-  local cellw, cellh = screenrect.w/gridsize.w, screenrect.h/gridsize.h
+  local gridw,gridh = grid.getGrid(screen)
+  -- sanitize, because why not
+  cell.x=max(0,min(cell.x,gridw-1)) cell.y=max(0,min(cell.y,gridh-1))
+  cell.w=max(1,min(cell.w,gridw-cell.x)) cell.h=max(1,min(cell.h,gridh-cell.y))
+  local cellw, cellh = screenrect.w/gridw, screenrect.h/gridh
   local newframe = {
     x = (cell.x * cellw) + screenrect.x + margins.w,
     y = (cell.y * cellh) + screenrect.y + margins.h,
@@ -372,7 +377,21 @@ end
 --- Returns:
 ---  * The `hs.grid` module for method chaining
 function grid.pushWindowLeft(win)
-  grid.adjustWindow(function(f) f.x = max(f.x - 1, 0) end, win)
+  --  grid.adjustWindow(function(f) f.x = max(f.x - 1, 0) end, win)
+  if not win then win = window.focusedWindow() end
+  local w,h = grid.getGrid(win:screen())
+  local f = grid.get(win)
+  local nx = f.x-1
+  if nx<0 then
+    -- go to left screen
+    local newscreen=win:screen():toWest()
+    if newscreen then
+      local neww = grid.getGrid(newscreen)
+      f.x = neww-f.w
+      grid.set(win,f,newscreen)
+    end
+  else grid.adjustWindow(function(f)f.x=nx end, win) end
+  return grid
 end
 
 --- hs.grid.pushWindowRight(window) -> hs.grid
@@ -387,7 +406,18 @@ end
 function grid.pushWindowRight(win)
   if not win then win = window.focusedWindow() end
   local w,h = grid.getGrid(win:screen())
-  grid.adjustWindow(function(f) f.x = min(f.x + 1, w - f.w) end, win)
+  --  grid.adjustWindow(function(f) f.x = min(f.x + 1, w - f.w) end, win)
+  local f = grid.get(win)
+  local nx = f.x+1
+  if nx+f.w>w then
+    -- go to right screen
+    local newscreen=win:screen():toEast()
+    if newscreen then
+      f.x = 0
+      grid.set(win,f,newscreen)
+    end
+  else grid.adjustWindow(function(f)f.x=nx end, win) end
+  return grid
 end
 
 --- hs.grid.resizeWindowWider(window) -> hs.grid
@@ -411,6 +441,7 @@ function grid.resizeWindowWider(win)
     end
     f.w = min(f.w + 1, w - f.x)
   end, win)
+  return grid
 end
 
 --- hs.grid.resizeWindowThinner(window) -> hs.grid
@@ -424,6 +455,7 @@ end
 ---  * The `hs.grid` module for method chaining
 function grid.resizeWindowThinner(win)
   grid.adjustWindow(function(f) f.w = max(f.w - 1, 1) end, win)
+  return grid
 end
 
 --- hs.grid.pushWindowDown(window) -> hs.grid
@@ -438,7 +470,18 @@ end
 function grid.pushWindowDown(win)
   if not win then win = window.focusedWindow() end
   local w,h = grid.getGrid(win:screen())
-  grid.adjustWindow(function(f) f.y = min(f.y + 1, h - f.h) end, win)
+  --  grid.adjustWindow(function(f) f.y = min(f.y + 1, h - f.h) end, win)
+  local f = grid.get(win)
+  local ny = f.y+1
+  if ny+f.h>h then
+    -- go to screen below
+    local newscreen=win:screen():toSouth()
+    if newscreen then
+      f.y = 0
+      grid.set(win,f,newscreen)
+    end
+  else grid.adjustWindow(function(f)f.y=ny end, win) end
+  return grid
 end
 
 --- hs.grid.pushWindowUp(window) -> hs.grid
@@ -451,7 +494,21 @@ end
 --- Returns:
 ---  * The `hs.grid` module for method chaining
 function grid.pushWindowUp(win)
-  grid.adjustWindow(function(f) f.y = max(f.y - 1, 0) end, win)
+  --  grid.adjustWindow(function(f) f.y = max(f.y - 1, 0) end, win)
+  if not win then win = window.focusedWindow() end
+  local w,h = grid.getGrid(win:screen())
+  local f = grid.get(win)
+  local ny = f.y-1
+  if ny<0 then
+    -- go to screen above
+    local newscreen=win:screen():toNorth()
+    if newscreen then
+      local _,newh = grid.getGrid(newscreen)
+      f.y = newh-f.h
+      grid.set(win,f,newscreen)
+    end
+  else grid.adjustWindow(function(f)f.y=ny end, win) end
+  return grid
 end
 
 --- hs.grid.resizeWindowShorter(window) -> hs.grid
@@ -489,6 +546,42 @@ function grid.resizeWindowTaller(win)
     f.h = min(f.h + 1, h - f.y)
   end, win)
 end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 -- Legacy stuff below
