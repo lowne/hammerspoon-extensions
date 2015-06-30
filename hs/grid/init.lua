@@ -34,14 +34,14 @@ local margins = {w=0,h=0}
 local grid = setmetatable({},{
   __index = function(t,k)
     if k=='GRIDWIDTH' then return gridSizes[1].w
-    elseif k=='GRIDHEIGTH' then return gridSizes[1].h
+    elseif k=='GRIDHEIGHT' then return gridSizes[1].h
     elseif k=='MARGINX' then return margins.w
     elseif k=='MARGINY' then return margins.h
     else return rawget(t,k) end
   end,
   __newindex = function(t,k,v)
     if k=='GRIDWIDTH' then gridSizes[1].w=v
-    elseif k=='GRIDHEIGTH' then gridSizes[1].h=v
+    elseif k=='GRIDHEIGHT' then gridSizes[1].h=v
     elseif k=='MARGINX' then margins.w=v
     elseif k=='MARGINY' then margins.h=v
     else rawset(t,k,v) end
@@ -130,33 +130,64 @@ function grid.setMargins(mar)
 end
 
 
+--- hs.grid.getGrid(screen) -> ncolumns, nrows
+--- Function
+--- Gets the defined grid size for a given screen or screen geometry
+---
+--- Parameters:
+---  * screen - the screen or screen geometry to get the grid of; it can be:
+---    * an `hs.screen` object
+---    * a number identifying the screen, as returned by `myscreen:id()`
+---    * a string in the format `WWWWxHHHH` where WWWW and HHHH are the screen width and heigth in screen points
+---    * a table in the format `{WWWW,HHHH}` or `{w=WWWW,h=HHHH}`
+---    * an `hs.geometry.rect` or `hs.geometry.size` object describing the screen width and heigth in screen points
+---    * if omitted or nil, gets the default grid, which is used when no specific grid is found for any given screen/geometry
+---
+--- Returns:
+---   * the number of columns in the grid
+---   * the number of rows in the grid
+---
+--- Notes:
+---   * if a grid was not set for the specified screen or geometry, the default grid will be returned
+---
+--- Usage:
+--- local w,h = hs.grid.getGrid('1920x1080') -- gets the defined grid for all screens with a 1920x1080 resolution
+--- local w,h=hs.grid.getGrid() hs.grid.setGrid{w+2,h} -- increases the number of columns in the default grid by 2
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function grid.getGrid(scr)
+  if scr~=nil then
+    local scrobj
+    if type(scr)=='userdata' and scr.id then scrobj=scr scr=scr:id() end
+    if type(scr)~='number' then scr=toRect(scr) end
+    if not scr then error('Invalid screen or geometry',2) return end
+    if type(scr)=='number' then
+      -- test with screen id
+      if gridSizes[scr] then return gridSizes[scr].w,gridSizes[scr].h end
+      -- check if there's a geometry matching the current resolution
+      if not scrobj then
+        local screens=screen.allScreens()
+        for _,s in ipairs(screens) do
+          if s:id()==scr then scrobj=s break end
+        end
+      end
+      if scrobj then
+        local screenframe=scrobj:fullFrame()
+        scr=toKey(screenframe)
+      end
+    else
+      scr=toKey(scr)
+    end
+    if gridSizes[scr] then return gridSizes[scr].w,gridSizes[scr].h end
+  end
+  return gridSizes[1].w,gridSizes[1].h
+end
 
 
 
 
 local function round(num, idp)
   local mult = 10^(idp or 0)
-  return math.floor(num * mult + 0.5) / mult
+  return floor(num * mult + 0.5) / mult
 end
 
 --- hs.grid.get(win) -> cell
@@ -174,14 +205,14 @@ function grid.get(win)
   if not winscreen then
     return nil
   end
+  local gridsize=grid.getGrid(winscreen)
   local screenrect = win:screen():frame()
-  local thirdscreenwidth = screenrect.w / grid.GRIDWIDTH
-  local halfscreenheight = screenrect.h / grid.GRIDHEIGHT
+  local cellw, cellh = screenrect.w/gridsize.w, screenrect.h/gridsize.h
   return {
-    x = round((winframe.x - screenrect.x) / thirdscreenwidth),
-    y = round((winframe.y - screenrect.y) / halfscreenheight),
-    w = math.max(1, round(winframe.w / thirdscreenwidth)),
-    h = math.max(1, round(winframe.h / halfscreenheight)),
+    x = round((winframe.x - screenrect.x) / cellw),
+    y = round((winframe.y - screenrect.y) / cellh),
+    w = max(1, round(winframe.w / cellw)),
+    h = max(1, round(winframe.h / cellh)),
   }
 end
 
@@ -198,19 +229,14 @@ end
 ---  * None
 function grid.set(win, cell, screen)
   local screenrect = screen:frame()
-  local thirdscreenwidth = screenrect.w / grid.GRIDWIDTH
-  local halfscreenheight = screenrect.h / grid.GRIDHEIGHT
+  local gridsize=grid.getGrid(screen)
+  local cellw, cellh = screenrect.w/gridsize.w, screenrect.h/gridsize.h
   local newframe = {
-    x = (cell.x * thirdscreenwidth) + screenrect.x,
-    y = (cell.y * halfscreenheight) + screenrect.y,
-    w = cell.w * thirdscreenwidth,
-    h = cell.h * halfscreenheight,
+    x = (cell.x * cellw) + screenrect.x + margins.w,
+    y = (cell.y * cellh) + screenrect.y + margins.h,
+    w = cell.w * cellw - (margins.w * 2),
+    h = cell.h * cellh - (margins.h * 2),
   }
-
-  newframe.x = newframe.x + grid.MARGINX
-  newframe.y = newframe.y + grid.MARGINY
-  newframe.w = newframe.w - (grid.MARGINX * 2)
-  newframe.h = newframe.h - (grid.MARGINY * 2)
 
   win:setFrame(newframe)
 end
@@ -233,38 +259,28 @@ function grid.snap(win)
   end
 end
 
---- hs.grid.adjustNumberOfRows(delta) -> number
+
+--- hs.grid.adjustWindow(fn, window) -> hs.grid
 --- Function
---- Increases or decreases the number of rows in the grid
+--- Calls a user specified function to adjust a window's cell
 ---
 --- Parameters:
----  * delta - A number to increase or decrease the rows of the grid by. Positive to increase the number of rows, negative to decrease it
+---  * fn - A function that accepts a cell-table as its only argument. The function should modify the cell-table as needed and return nothing
+---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
 ---
 --- Returns:
----  * None
-function grid.adjustNumberOfRows(delta)
-  grid.GRIDHEIGHT = math.max(1, grid.GRIDHEIGHT + delta)
-  fnutils.map(window.visibleWindows(), grid.snap)
+---  * The `hs.grid` module for method chaining
+function grid.adjustWindow(fn,win)
+  if not win then win = window.focusedWindow() end
+  local f = grid.get(win)
+  if f then
+    fn(f)
+    grid.set(win, f, win:screen())
+  end
+  return grid
 end
--- This is for legacy purposes
-grid.adjustHeight = grid.adjustNumberOfRows
 
---- hs.grid.adjustNumberOfColumns(delta)
---- Function
---- Increases or decreases the number of columns in the grid
----
---- Parameters:
----  * delta - A number to increase or decrease the columns of the grid by. Positive to increase the number of columns, negative to decrease it
----
---- Returns:
----  * None
-function grid.adjustWidth(delta)
-  grid.GRIDWIDTH = math.max(1, grid.GRIDWIDTH + delta)
-  fnutils.map(window.visibleWindows(), grid.snap)
-end
-grid.adjustWidth = grid.adjustNumberOfColumns
-
---- hs.grid.adjustFocusedWindow(fn)
+--- hs.grid.adjustFocusedWindow(fn) -> hs.grid
 --- Function
 --- Calls a user specified function to adjust the currently focused window's cell
 ---
@@ -272,197 +288,216 @@ grid.adjustWidth = grid.adjustNumberOfColumns
 ---  * fn - A function that accepts a cell-table as its only argument. The function should modify the cell-table as needed and return nothing
 ---
 --- Returns:
----  * None
-function grid.adjustFocusedWindow(fn)
-  local win = window.focusedWindow()
-  local f = grid.get(win)
-  if f then
-    fn(f)
-    grid.set(win, f, win:screen())
-  end
-end
+---  * The `hs.grid` module for method chaining
+---
+--- Notes:
+---  * Legacy function, use `adjustWindow` instead
+grid.adjustFocusedWindow=grid.adjustWindow
 
---- hs.grid.maximizeWindow()
+--- hs.grid.maximizeWindow(window) -> hs.grid
 --- Function
---- Moves and resizes the currently focused window to fill the entire grid
+--- Moves and resizes a window to fill the entire grid
 ---
 --- Parameters:
----  * None
+---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
 ---
 --- Returns:
----  * None
-function grid.maximizeWindow()
-  local win = window.focusedWindow()
-  local f = {x = 0, y = 0, w = grid.GRIDWIDTH, h = grid.GRIDHEIGHT}
+---  * The `hs.grid` module for method chaining
+function grid.maximizeWindow(win)
+  if not win then win = window.focusedWindow() end
   local winscreen = win:screen()
   if winscreen then
+    local w,h = grid.getGrid(winscreen)
+    local f = {x = 0, y = 0, w = w, h = h}
     grid.set(win, f, winscreen)
   end
+  return grid
 end
 
---- hs.grid.pushWindowNextScreen()
+--- hs.grid.pushWindowNextScreen(window) -> hs.grid
 --- Function
---- Moves the focused window to the next screen, retaining its cell
+--- Moves a window to the next screen, snapping it to the screen's grid
 ---
 --- Parameters:
----  * None
+---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
 ---
 --- Returns:
----  * None
-function grid.pushWindowNextScreen()
-  local win = window.focusedWindow()
-  local gridframe = grid.get(win)
-  if gridframe then
-    grid.set(win, gridframe, win:screen():next())
+---  * The `hs.grid` module for method chaining
+function grid.pushWindowNextScreen(win)
+  if not win then win = window.focusedWindow() end
+  local winscreen=win:screen()
+  if winscreen then
+    win:moveToScreen(winscreen:next())
+    grid.snap(win)
   end
+  return grid
+    --  local win = window.focusedWindow()
+    --  local gridframe = grid.get(win)
+    --  if gridframe then
+    --    grid.set(win, gridframe, win:screen():next())
+    --  end
 end
 
---- hs.grid.pushWindowPrevScreen()
+--- hs.grid.pushWindowPrevScreen(window) -> hs.grid
 --- Function
---- Moves the focused window to the previous screen, retaining its cell
+--- Moves a window to the previous screen, snapping it to the screen's grid
 ---
 --- Parameters:
----  * None
+---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
 ---
 --- Returns:
----  * None
-function grid.pushWindowPrevScreen()
-  local win = window.focusedWindow()
-  local gridframe = grid.get(win)
-  if gridframe then
-    grid.set(win, gridframe, win:screen():previous())
+---  * The `hs.grid` module for method chaining
+function grid.pushWindowPrevScreen(win)
+  if not win then win = window.focusedWindow() end
+  local winscreen=win:screen()
+  if winscreen then
+    win:moveToScreen(winscreen:previous())
+    grid.snap(win)
   end
+  return grid
+    --  local win = window.focusedWindow()
+    --  local gridframe = grid.get(win)
+    --  if gridframe then
+    --    grid.set(win, gridframe, win:screen():previous())
+    --  end
 end
 
---- hs.grid.pushWindowLeft()
+--- hs.grid.pushWindowLeft(window) -> hs.grid
 --- Function
---- Moves the focused window one grid cell to the left
+--- Moves a window one grid cell to the left
 ---
 --- Parameters:
----  * None
+---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
 ---
 --- Returns:
----  * None
-function grid.pushWindowLeft()
-  grid.adjustFocusedWindow(function(f) f.x = math.max(f.x - 1, 0) end)
+---  * The `hs.grid` module for method chaining
+function grid.pushWindowLeft(win)
+  grid.adjustWindow(function(f) f.x = max(f.x - 1, 0) end, win)
 end
 
---- hs.grid.pushWindowRight()
+--- hs.grid.pushWindowRight(window) -> hs.grid
 --- Function
---- Moves the focused window one cell to the right
+--- Moves a window one cell to the right
 ---
 --- Parameters:
----  * None
+---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
 ---
 --- Returns:
----  * None
-function grid.pushWindowRight()
-  grid.adjustFocusedWindow(function(f) f.x = math.min(f.x + 1, grid.GRIDWIDTH - f.w) end)
+---  * The `hs.grid` module for method chaining
+function grid.pushWindowRight(win)
+  if not win then win = window.focusedWindow() end
+  local w,h = grid.getGrid(win:screen())
+  grid.adjustWindow(function(f) f.x = min(f.x + 1, w - f.w) end, win)
 end
 
---- hs.grid.resizeWindowWider()
+--- hs.grid.resizeWindowWider(window) -> hs.grid
 --- Function
---- Resizes the focused window to be one cell wider
+--- Resizes a window to be one cell wider
 ---
 --- Parameters:
----  * None
+---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
 ---
 --- Returns:
----  * None
+---  * The `hs.grid` module for method chaining
 ---
 --- Notes:
 ---  * If the window hits the right edge of the screen and is asked to become wider, its left edge will shift further left
-function grid.resizeWindowWider()
-  grid.adjustFocusedWindow(function(f)
-    if f.w + f.x >= grid.GRIDWIDTH and f.x > 0 then
+function grid.resizeWindowWider(win)
+  if not win then win = window.focusedWindow() end
+  local w,h = grid.getGrid(win:screen())
+  grid.adjustWindow(function(f)
+    if f.w + f.x >= w and f.x > 0 then
       f.x = f.x - 1
     end
-    f.w = math.min(f.w + 1, grid.GRIDWIDTH - f.x)
-  end)
+    f.w = min(f.w + 1, w - f.x)
+  end, win)
 end
 
---- hs.grid.resizeWindowThinner()
+--- hs.grid.resizeWindowThinner(window) -> hs.grid
 --- Function
---- Resizes the focused window to be one cell thinner
+--- Resizes a window to be one cell thinner
 ---
 --- Parameters:
----  * None
+---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
 ---
 --- Returns:
----  * None
-function grid.resizeWindowThinner()
-  grid.adjustFocusedWindow(function(f) f.w = math.max(f.w - 1, 1) end)
+---  * The `hs.grid` module for method chaining
+function grid.resizeWindowThinner(win)
+  grid.adjustWindow(function(f) f.w = max(f.w - 1, 1) end, win)
 end
 
---- hs.grid.pushWindowDown()
+--- hs.grid.pushWindowDown(window) -> hs.grid
 --- Function
---- Moves the focused window one grid cell down the screen
+--- Moves a window one grid cell down the screen
 ---
 --- Parameters:
----  * None
+---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
 ---
 --- Returns:
----  * None
-function grid.pushWindowDown()
-  grid.adjustFocusedWindow(function(f) f.y = math.min(f.y + 1, grid.GRIDHEIGHT - f.h) end)
+---  * The `hs.grid` module for method chaining
+function grid.pushWindowDown(win)
+  if not win then win = window.focusedWindow() end
+  local w,h = grid.getGrid(win:screen())
+  grid.adjustWindow(function(f) f.y = min(f.y + 1, h - f.h) end, win)
 end
 
---- hs.grid.pushWindowUp()
+--- hs.grid.pushWindowUp(window) -> hs.grid
 --- Function
---- Moves the focused window one grid cell up the screen
+--- Moves a window one grid cell up the screen
 ---
 --- Parameters:
----  * None
+---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
 ---
 --- Returns:
----  * None
-function grid.pushWindowUp()
-  grid.adjustFocusedWindow(function(f) f.y = math.max(f.y - 1, 0) end)
+---  * The `hs.grid` module for method chaining
+function grid.pushWindowUp(win)
+  grid.adjustWindow(function(f) f.y = max(f.y - 1, 0) end, win)
 end
 
---- hs.grid.resizeWindowShorter()
+--- hs.grid.resizeWindowShorter(window) -> hs.grid
 --- Function
---- Resizes the focused window so its bottom edge moves one grid cell higher
+--- Resizes a window so its bottom edge moves one grid cell higher
 ---
 --- Parameters:
----  * None
+---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
 ---
 --- Returns:
----  * None
-function grid.resizeWindowShorter()
-  grid.adjustFocusedWindow(function(f) f.y = f.y - 0; f.h = math.max(f.h - 1, 1) end)
+---  * The `hs.grid` module for method chaining
+function grid.resizeWindowShorter(win)
+  grid.adjustWindow(function(f) f.y = f.y - 0; f.h = max(f.h - 1, 1) end, win)
 end
 
---- hs.grid.resizeWindowTaller()
+--- hs.grid.resizeWindowTaller(window) -> hs.grid
 --- Function
---- Resizes the focused window so its bottom edge moves one grid cell lower
+--- Resizes a window so its bottom edge moves one grid cell lower
 ---
 --- Parameters:
----  * If the window hits the bottom edge of the screen and is asked to become taller, its top edge will shift further up
+---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
 ---
 --- Returns:
----  * None
+---  * The `hs.grid` module for method chaining
 ---
 --- Notes:
-function grid.resizeWindowTaller()
-  grid.adjustFocusedWindow(function(f)
-    if f.y + f.h >= grid.GRIDHEIGHT and f.y > 0 then
+---  * If the window hits the bottom edge of the screen and is asked to become taller, its top edge will shift further up
+function grid.resizeWindowTaller(win)
+  if not win then win = window.focusedWindow() end
+  local w,h = grid.getGrid(win:screen())
+  grid.adjustWindow(function(f)
+    if f.y + f.h >= h and f.y > 0 then
       f.y = f.y -1
     end
-    f.h = math.min(f.h + 1, grid.GRIDHEIGHT - f.y)
-  end)
+    f.h = min(f.h + 1, h - f.y)
+  end, win)
 end
 
-return grid
 
-
-
+-- Legacy stuff below
 
 
 --- hs.grid.MARGINX = 5
 --- Variable
 --- The margin between each window horizontally, measured in screen points (typically a point is a pixel on a non-retina screen, or two pixels on a retina screen
---- 
+---
 --- Notes:
 ---   * Legacy variable; use `setMargins` instead
 --grid.MARGINX = 5
@@ -470,7 +505,7 @@ return grid
 --- hs.grid.MARGINY = 5
 --- Variable
 --- The margin between each window vertically, measured in screen points (typically a point is a pixel on a non-retina screen, or two pixels on a retina screen)
---- 
+---
 --- Notes:
 ---   * Legacy variable; use `setMargins` instead
 --grid.MARGINY = 5
@@ -478,7 +513,7 @@ return grid
 --- hs.grid.GRIDHEIGHT = 3
 --- Variable
 --- The number of rows in the grid
---- 
+---
 --- Notes:
 ---   * Legacy variable; use `setGrid` instead
 --grid.GRIDHEIGHT = 3
@@ -486,7 +521,48 @@ return grid
 --- hs.grid.GRIDWIDTH = 3
 --- Variable
 --- The number of columns in the grid
---- 
+---
 --- Notes:
 ---   * Legacy variable; use `setGrid` instead
 --grid.GRIDWIDTH = 3
+
+--- hs.grid.adjustNumberOfRows(delta) -> number
+--- Function
+--- Increases or decreases the number of rows in the default grid, then snaps all windows to the new grid
+---
+--- Parameters:
+---  * delta - A number to increase or decrease the rows of the default grid by. Positive to increase the number of rows, negative to decrease it
+---
+--- Returns:
+---  * None
+---
+--- Notes:
+---  * Legacy function; use `getGrid` and `setGrid` instead
+---  * Screens with a specified grid (via `setGrid`) won't be affected, as this function only alters the default grid
+function grid.adjustNumberOfRows(delta)
+  grid.GRIDHEIGHT = max(1, grid.GRIDHEIGHT + delta)
+  fnutils.map(window.visibleWindows(), grid.snap)
+end
+-- This is for legacy purposes
+grid.adjustHeight = grid.adjustNumberOfRows
+
+--- hs.grid.adjustNumberOfColumns(delta)
+--- Function
+--- Increases or decreases the number of columns in the default grid, then snaps all windows to the new grid
+---
+--- Parameters:
+---  * delta - A number to increase or decrease the columns of the default grid by. Positive to increase the number of columns, negative to decrease it
+---
+--- Returns:
+---  * None
+---
+--- Notes:
+---  * Legacy function; use `getGrid` and `setGrid` instead
+---  * Screens with a specified grid (via `setGrid`) won't be affected, as this function only alters the default grid
+function grid.adjustWidth(delta)
+  grid.GRIDWIDTH = max(1, grid.GRIDWIDTH + delta)
+  fnutils.map(window.visibleWindows(), grid.snap)
+end
+grid.adjustWidth = grid.adjustNumberOfColumns
+
+return grid
