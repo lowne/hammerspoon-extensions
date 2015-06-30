@@ -1,3 +1,4 @@
+hs._extensions.grid=nil
 local done,_hs={},hs
 return setmetatable({},{__index=function(t,k)
   local t=_hs[k]
