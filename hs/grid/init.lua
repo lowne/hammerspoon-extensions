@@ -32,7 +32,7 @@ local setmetatable,rawget,rawset=setmetatable,rawget,rawset
 
 local gridSizes = {{w=3,h=3}} -- user-defined grid sizes for each screen or geometry, default ([1]) is 3x3
 --i'm using [1] to ease the possible future addition of multiple grid layouts per screen (they'd get [2] etc.)
-local margins = {w=0,h=0}
+local margins = {w=5,h=5}
 
 local grid = {setLogLevel=log.setLogLevel} -- module
 
