@@ -2,7 +2,8 @@
 ---
 --- Move/resize windows within a grid
 ---
---- The grid partitions of your screen for the purposes of window management. The default layout of the grid is 3 columns and 3 rows.
+--- The grid partitions your screens for the purposes of window management. The default layout of the grid is 3 columns by 3 rows.
+--- You can specify different grid layouts for different screens and/or screen resolutions.
 ---
 --- Windows that are aligned with the grid have their location and size described as a `cell`. Each cell is a table which contains the keys:
 ---  * x - A number containing the column of the left edge of the window
@@ -14,7 +15,8 @@
 ---  * a cell {x = 0, y = 0, w = 1, h = 1} will be in the upper-left corner
 ---  * a cell {x = 1, y = 0, w = 1, h = 1} will be in the upper-right corner
 ---  * and so on...
-
+---
+--- Additionally, a modal keyboard driven interface for interactive resizing is provided via `hs.grid.show()`
 
 local fnutils = require "hs.fnutils"
 local window = require "hs.window"
@@ -29,6 +31,7 @@ local setmetatable,rawget,rawset=setmetatable,rawget,rawset
 
 
 local gridSizes = {{w=3,h=3}} -- user-defined grid sizes for each screen or geometry, default ([1]) is 3x3
+--i'm using [1] to ease the possible future addition of multiple grid layouts per screen (they'd get [2] etc.)
 local margins = {w=0,h=0}
 
 local grid = {setLogLevel=log.setLogLevel} -- module
@@ -55,7 +58,7 @@ local function toKey(rect) return sformat('%dx%d',rect.w,rect.h) end
 
 --- hs.grid.setGrid(grid,screen) -> hs.grid
 --- Function
---- Sets the grid size for a given screen or screen geometry
+--- Sets the grid size for a given screen or screen resolution
 ---
 --- Parameters:
 ---  * grid - the number of columns and rows for the grid; it can be:
@@ -68,7 +71,7 @@ local function toKey(rect) return sformat('%dx%d',rect.w,rect.h) end
 ---    * a string in the format `WWWWxHHHH` where WWWW and HHHH are the screen width and heigth in screen points
 ---    * a table in the format `{WWWW,HHHH}` or `{w=WWWW,h=HHHH}`
 ---    * an `hs.geometry.rect` or `hs.geometry.size` object describing the screen width and heigth in screen points
----    * if omitted or nil, sets the default grid, which is used when no specific grid is found for any given screen/geometry
+---    * if omitted or nil, sets the default grid, which is used when no specific grid is found for any given screen/resolution
 ---
 --- Returns:
 ---   * hs.grid for method chaining
@@ -87,7 +90,6 @@ function grid.setGrid(gr,scr)
     if not scr then error('Invalid screen or geometry',2) return end
   else scr=1 end
   if type(scr)~='number' then scr=toKey(scr) end
-  --    grid.w=min(grid.w,#HINTS[1]) grid.h=min(grid.h,#HINTS)
   gr.w=min(gr.w,50) gr.h=min(gr.h,50) -- cap grid to 50x50, just in case
   gridSizes[scr]=gr
   if scr==1 then log.f('Default grid set to %d by %d',gr.w,gr.h)
@@ -119,16 +121,16 @@ end
 
 --- hs.grid.getGrid(screen) -> ncolumns, nrows
 --- Function
---- Gets the defined grid size for a given screen or screen geometry
+--- Gets the defined grid size for a given screen or screen resolution
 ---
 --- Parameters:
----  * screen - the screen or screen geometry to get the grid of; it can be:
+---  * screen - the screen or screen resolution to get the grid of; it can be:
 ---    * an `hs.screen` object
 ---    * a number identifying the screen, as returned by `myscreen:id()`
 ---    * a string in the format `WWWWxHHHH` where WWWW and HHHH are the screen width and heigth in screen points
 ---    * a table in the format `{WWWW,HHHH}` or `{w=WWWW,h=HHHH}`
 ---    * an `hs.geometry.rect` or `hs.geometry.size` object describing the screen width and heigth in screen points
----    * if omitted or nil, gets the default grid, which is used when no specific grid is found for any given screen/geometry
+---    * if omitted or nil, gets the default grid, which is used when no specific grid is found for any given screen/resolution
 ---
 --- Returns:
 ---   * the number of columns in the grid
@@ -170,8 +172,28 @@ function grid.getGrid(scr)
 end
 
 
+--- hs.grid.show()
+--- Function
+--- Shows the grid and starts the modal interactive resizing process for the focused window.
+--- In most cases this function should be invoked via `hs.hotkey.bind` with some keyboard shortcut.
+---
+--- Parameters:
+---  * None
+---
+--- Returns:
+---  * None
+---
+--- Notes:
+---  * In the modal interface, press the arrow keys to jump to adjacent screens; spacebar to maximize/unmaximize; esc to quit without any effect
+---  * The keyboard hints assume a QWERTY layout; if you use a different layout, change `hs.grid.HINTS` accordingly
 
-
+--- hs.grid.HINTS
+--- Variable
+--- A bidimensional array (table of tables of strings) holding the keyboard hints (as per `hs.keycodes.map`) to be used for the interactive resizing interface.
+--- Change this if you don't use a QWERTY layout
+---
+--- Notes:
+---  * `hs.inspect(hs.grid.HINTS)` from the console will show you how the table is built
 
 local function getCellSize(screen)
   local gridw,gridh = grid.getGrid(screen)
@@ -210,7 +232,7 @@ function grid.get(win)
   }
 end
 
---- hs.grid.set(win, cell, screen)
+--- hs.grid.set(win, cell, screen) -> hs.grid
 --- Function
 --- Sets the cell for a window, on a particular screen
 ---
@@ -238,7 +260,7 @@ function grid.set(win, cell, screen)
   return grid
 end
 
---- hs.grid.snap(win)
+--- hs.grid.snap(win) -> hs.grid
 --- Function
 --- Snaps a window into alignment with the nearest grid lines
 ---
@@ -351,7 +373,7 @@ end
 
 --- hs.grid.pushWindowLeft(window) -> hs.grid
 --- Function
---- Moves a window one grid cell to the left
+--- Moves a window one grid cell to the left, or onto the adjacent screen's grid when necessary
 ---
 --- Parameters:
 ---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
@@ -377,7 +399,7 @@ end
 
 --- hs.grid.pushWindowRight(window) -> hs.grid
 --- Function
---- Moves a window one cell to the right
+--- Moves a window one cell to the right, or onto the adjacent screen's grid when necessary
 ---
 --- Parameters:
 ---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
@@ -440,7 +462,7 @@ end
 
 --- hs.grid.pushWindowDown(window) -> hs.grid
 --- Function
---- Moves a window one grid cell down the screen
+--- Moves a window one grid cell down the screen, or onto the adjacent screen's grid when necessary
 ---
 --- Parameters:
 ---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
@@ -466,7 +488,7 @@ end
 
 --- hs.grid.pushWindowUp(window) -> hs.grid
 --- Function
---- Moves a window one grid cell up the screen
+--- Moves a window one grid cell up the screen, or onto the adjacent screen's grid when necessary
 ---
 --- Parameters:
 ---  * window - An `hs.window` object to act on; if omitted, the focused window will be used
@@ -540,6 +562,7 @@ grid.HINTS={{'f1','f2','f3','f4','f5','f6','f7','f8'},
 }
 
 local HINTS_ROWS = {{4},{3,4},{3,4,5},{2,3,4,5},{1,2,3,4,5}}
+--TODO (unlikely) expose this to allow crazy custom bindings (e.g. rotated 90 degrees on the keyboard for portrait screens?)
 
 local COLOR_BLACK={red=0,green=0,blue=0,alpha=1}
 local COLOR_WHITE={red=1,green=1,blue=1,alpha=1}
@@ -711,16 +734,6 @@ local function _start()
   initialized=true
 end
 
---- hs.grid.show()
---- Function
---- Shows the resizing grid and starts the modal resizing process for the focused window.
---- In most cases this function should be invoked via `hs.hotkey.bind` with some keyboard shortcut.
----
---- Parameters:
----  * None
----
---- Returns:
----  * None
 function grid.show()
   if not initialized then _start()
   else resizing:exit() end
@@ -781,7 +794,7 @@ setmetatable(grid,{
   end,
 }) -- metatable for legacy variables
 
---- hs.grid.adjustNumberOfRows(delta) -> number
+--- hs.grid.adjustNumberOfRows(delta)
 --- Function
 --- Increases or decreases the number of rows in the default grid, then snaps all windows to the new grid
 ---
