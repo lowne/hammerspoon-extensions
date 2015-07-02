@@ -197,6 +197,7 @@ function grid.get(win)
   local winframe = win:frame()
   local winscreen = win:screen()
   if not winscreen then
+    log.w('Cannot get the window\'s screen')
     return nil
   end
   local screenframe = winscreen:frame()
@@ -219,7 +220,7 @@ end
 ---  * screen - An `hs.screen` object representing the screen to place the window on
 ---
 --- Returns:
----  * None
+---  * The `hs.grid` module for method chaining
 function grid.set(win, cell, screen)
   local screenrect = screen:frame()
   local gridw,gridh = grid.getGrid(screen)
@@ -233,8 +234,8 @@ function grid.set(win, cell, screen)
     w = cell.w * cellw - (margins.w * 2),
     h = cell.h * cellh - (margins.h * 2),
   }
-
   win:setFrame(newframe)
+  return grid
 end
 
 --- hs.grid.snap(win)
@@ -245,14 +246,15 @@ end
 ---  * win - A `hs.window` object to snap
 ---
 --- Returns:
----  * None
+---  * The `hs.grid` module for method chaining
 function grid.snap(win)
   if win:isStandard() then
     local gridframe = grid.get(win)
     if gridframe then
       grid.set(win, gridframe, win:screen())
     end
-  end
+  else log.i('Cannot snap nonstandard window') end
+  return grid
 end
 
 
@@ -268,12 +270,11 @@ end
 ---  * The `hs.grid` module for method chaining
 function grid.adjustWindow(fn,win)
   if not win then win = window.focusedWindow() end
+  if not win then log.w('Cannot get focused window') return grid end
   local f = grid.get(win)
-  if f then
-    fn(f)
-    grid.set(win, f, win:screen())
-  end
-  return grid
+  if not f then log.w('Cannot get window cell') return grid end
+  fn(f)
+  return grid.set(win, f, win:screen())
 end
 
 --- hs.grid.adjustFocusedWindow(fn) -> hs.grid
@@ -290,6 +291,12 @@ end
 ---  * Legacy function, use `adjustWindow` instead
 grid.adjustFocusedWindow=grid.adjustWindow
 
+local function checkWindow(win)
+  if not win then win = window.focusedWindow() end
+  if not win then log.w('Cannot get focused window') return end
+  if not win:screen() then log.w('Cannot get the window\'s screen') return end
+  return win
+end
 --- hs.grid.maximizeWindow(window) -> hs.grid
 --- Function
 --- Moves and resizes a window to fill the entire grid
@@ -300,14 +307,12 @@ grid.adjustFocusedWindow=grid.adjustWindow
 --- Returns:
 ---  * The `hs.grid` module for method chaining
 function grid.maximizeWindow(win)
-  if not win then win = window.focusedWindow() end
+  win=checkWindow(win)
+  if not win then return grid end
   local winscreen = win:screen()
-  if winscreen then
-    local w,h = grid.getGrid(winscreen)
-    local f = {x = 0, y = 0, w = w, h = h}
-    grid.set(win, f, winscreen)
-  end
-  return grid
+  local w,h = grid.getGrid(winscreen)
+  local f = {x = 0, y = 0, w = w, h = h}
+  return grid.set(win, f, winscreen)
 end
 
 --- hs.grid.pushWindowNextScreen(window) -> hs.grid
@@ -320,18 +325,11 @@ end
 --- Returns:
 ---  * The `hs.grid` module for method chaining
 function grid.pushWindowNextScreen(win)
-  if not win then win = window.focusedWindow() end
+  win=checkWindow(win)
+  if not win then return grid end
   local winscreen=win:screen()
-  if winscreen then
-    win:moveToScreen(winscreen:next())
-    grid.snap(win)
-  end
-  return grid
-    --  local win = window.focusedWindow()
-    --  local gridframe = grid.get(win)
-    --  if gridframe then
-    --    grid.set(win, gridframe, win:screen():next())
-    --  end
+  win:moveToScreen(winscreen:next())
+  return grid.snap(win)
 end
 
 --- hs.grid.pushWindowPrevScreen(window) -> hs.grid
@@ -344,18 +342,11 @@ end
 --- Returns:
 ---  * The `hs.grid` module for method chaining
 function grid.pushWindowPrevScreen(win)
-  if not win then win = window.focusedWindow() end
+  win=checkWindow(win)
+  if not win then return grid end
   local winscreen=win:screen()
-  if winscreen then
-    win:moveToScreen(winscreen:previous())
-    grid.snap(win)
-  end
-  return grid
-    --  local win = window.focusedWindow()
-    --  local gridframe = grid.get(win)
-    --  if gridframe then
-    --    grid.set(win, gridframe, win:screen():previous())
-    --  end
+  win:moveToScreen(winscreen:previous())
+  return grid.snap(win)
 end
 
 --- hs.grid.pushWindowLeft(window) -> hs.grid
@@ -368,8 +359,8 @@ end
 --- Returns:
 ---  * The `hs.grid` module for method chaining
 function grid.pushWindowLeft(win)
-  --  grid.adjustWindow(function(f) f.x = max(f.x - 1, 0) end, win)
-  if not win then win = window.focusedWindow() end
+  win=checkWindow(win)
+  if not win then return grid end
   local winscreen = win:screen()
   local w,h = grid.getGrid(winscreen)
   local f = grid.get(win)
@@ -377,13 +368,11 @@ function grid.pushWindowLeft(win)
     -- go to left screen
     local frame=win:frame()
     local newscreen=winscreen:toWest(frame)
-    if newscreen then
-      frame.x = frame.x-frame.w
-      win:setFrame(frame) win:ensureIsInScreenBounds()
-      grid.snap(win)
-    end
-  else grid.adjustWindow(function(f)f.x=f.x-1 end, win) end
-  return grid
+    if not newscreen then return grid end
+    frame.x = frame.x-frame.w
+    win:setFrame(frame) win:ensureIsInScreenBounds()
+    return grid.snap(win)
+  else return grid.adjustWindow(function(f)f.x=f.x-1 end, win) end
 end
 
 --- hs.grid.pushWindowRight(window) -> hs.grid
@@ -396,22 +385,20 @@ end
 --- Returns:
 ---  * The `hs.grid` module for method chaining
 function grid.pushWindowRight(win)
-  if not win then win = window.focusedWindow() end
+  win=checkWindow(win)
+  if not win then return grid end
   local winscreen = win:screen()
   local w,h = grid.getGrid(winscreen)
-  --  grid.adjustWindow(function(f) f.x = min(f.x + 1, w - f.w) end, win)
   local f = grid.get(win)
   if f.x+f.w>=w then
     -- go to right screen
     local frame=win:frame()
     local newscreen=winscreen:toEast(frame)
-    if newscreen then
-      frame.x = frame.x+frame.w
-      win:setFrame(frame) win:ensureIsInScreenBounds()
-      grid.snap(win)
-    end
-  else grid.adjustWindow(function(f)f.x=f.x+1 end, win) end
-  return grid
+    if not newscreen then return grid end
+    frame.x = frame.x+frame.w
+    win:setFrame(frame) win:ensureIsInScreenBounds()
+    return grid.snap(win)
+  else return grid.adjustWindow(function(f)f.x=f.x+1 end, win) end
 end
 
 --- hs.grid.resizeWindowWider(window) -> hs.grid
@@ -427,15 +414,15 @@ end
 --- Notes:
 ---  * If the window hits the right edge of the screen and is asked to become wider, its left edge will shift further left
 function grid.resizeWindowWider(win)
-  if not win then win = window.focusedWindow() end
+  win=checkWindow(win)
+  if not win then return grid end
   local w,h = grid.getGrid(win:screen())
-  grid.adjustWindow(function(f)
+  return grid.adjustWindow(function(f)
     if f.w + f.x >= w and f.x > 0 then
       f.x = f.x - 1
     end
     f.w = min(f.w + 1, w - f.x)
   end, win)
-  return grid
 end
 
 --- hs.grid.resizeWindowThinner(window) -> hs.grid
@@ -448,8 +435,7 @@ end
 --- Returns:
 ---  * The `hs.grid` module for method chaining
 function grid.resizeWindowThinner(win)
-  grid.adjustWindow(function(f) f.w = max(f.w - 1, 1) end, win)
-  return grid
+  return grid.adjustWindow(function(f) f.w = max(f.w - 1, 1) end, win)
 end
 
 --- hs.grid.pushWindowDown(window) -> hs.grid
@@ -462,22 +448,20 @@ end
 --- Returns:
 ---  * The `hs.grid` module for method chaining
 function grid.pushWindowDown(win)
-  if not win then win = window.focusedWindow() end
+  win=checkWindow(win)
+  if not win then return grid end
   local winscreen = win:screen()
   local w,h = grid.getGrid(winscreen)
-  --  grid.adjustWindow(function(f) f.y = min(f.y + 1, h - f.h) end, win)
   local f = grid.get(win)
   if f.y+f.h>=h then
     -- go to screen below
     local frame=win:frame()
     local newscreen=winscreen:toSouth(frame)
-    if newscreen then
-      frame.y = frame.y+frame.h
-      win:setFrame(frame) win:ensureIsInScreenBounds()
-      grid.snap(win)
-    end
-  else grid.adjustWindow(function(f)f.y=f.y+1 end, win) end
-  return grid
+    if not newscreen then return grid end
+    frame.y = frame.y+frame.h
+    win:setFrame(frame) win:ensureIsInScreenBounds()
+    return grid.snap(win)
+  else return grid.adjustWindow(function(f)f.y=f.y+1 end, win) end
 end
 
 --- hs.grid.pushWindowUp(window) -> hs.grid
@@ -490,8 +474,8 @@ end
 --- Returns:
 ---  * The `hs.grid` module for method chaining
 function grid.pushWindowUp(win)
-  --  grid.adjustWindow(function(f) f.y = max(f.y - 1, 0) end, win)
-  if not win then win = window.focusedWindow() end
+  win=checkWindow(win)
+  if not win then return grid end
   local winscreen = win:screen()
   local w,h = grid.getGrid(winscreen)
   local f = grid.get(win)
@@ -499,13 +483,11 @@ function grid.pushWindowUp(win)
     -- go to screen above
     local frame=win:frame()
     local newscreen=winscreen:toNorth(frame)
-    if newscreen then
-      frame.y = frame.y-frame.h
-      win:setFrame(frame) win:ensureIsInScreenBounds()
-      grid.snap(win)
-    end
-  else grid.adjustWindow(function(f)f.y=f.y-1 end, win) end
-  return grid
+    if not newscreen then return grid end
+    frame.y = frame.y-frame.h
+    win:setFrame(frame) win:ensureIsInScreenBounds()
+    return grid.snap(win)
+  else return grid.adjustWindow(function(f)f.y=f.y-1 end, win) end
 end
 
 --- hs.grid.resizeWindowShorter(window) -> hs.grid
@@ -518,7 +500,7 @@ end
 --- Returns:
 ---  * The `hs.grid` module for method chaining
 function grid.resizeWindowShorter(win)
-  grid.adjustWindow(function(f) f.y = f.y - 0; f.h = max(f.h - 1, 1) end, win)
+  return grid.adjustWindow(function(f) f.y = f.y - 0; f.h = max(f.h - 1, 1) end, win)
 end
 
 --- hs.grid.resizeWindowTaller(window) -> hs.grid
@@ -534,16 +516,16 @@ end
 --- Notes:
 ---  * If the window hits the bottom edge of the screen and is asked to become taller, its top edge will shift further up
 function grid.resizeWindowTaller(win)
-  if not win then win = window.focusedWindow() end
+  win=checkWindow(win)
+  if not win then return grid end
   local w,h = grid.getGrid(win:screen())
-  grid.adjustWindow(function(f)
+  return grid.adjustWindow(function(f)
     if f.y + f.h >= h and f.y > 0 then
       f.y = f.y -1
     end
     f.h = min(f.h + 1, h - f.y)
   end, win)
 end
-
 
 
 
