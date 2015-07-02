@@ -31,25 +31,7 @@ local setmetatable,rawget,rawset=setmetatable,rawget,rawset
 local gridSizes = {{w=3,h=3}} -- user-defined grid sizes for each screen or geometry, default ([1]) is 3x3
 local margins = {w=0,h=0}
 
-local grid = setmetatable({},{
-  __index = function(t,k)
-    if k=='GRIDWIDTH' then return gridSizes[1].w
-    elseif k=='GRIDHEIGHT' then return gridSizes[1].h
-    elseif k=='MARGINX' then return margins.w
-    elseif k=='MARGINY' then return margins.h
-    else return rawget(t,k) end
-  end,
-  __newindex = function(t,k,v)
-    if k=='GRIDWIDTH' then gridSizes[1].w=v log.f('Default grid set to %d by %d',gridSizes[1].w,gridSizes[1].h)
-    elseif k=='GRIDHEIGHT' then gridSizes[1].h=v log.f('Default grid set to %d by %d',gridSizes[1].w,gridSizes[1].h)
-    elseif k=='MARGINX' then margins.w=v log.f('Window margin set to %d,%d',margins.w,margins.h)
-    elseif k=='MARGINY' then margins.h=v log.f('Window margin set to %d,%d',margins.w,margins.h)
-    else rawset(t,k,v) end
-  end,
-}) -- module; metatable for legacy variables
-grid.setLogLevel = log.setLogLevel
-
-
+local grid = {setLogLevel=log.setLogLevel} -- module
 
 local function toRect(screen)
   local typ,rect=type(screen)
@@ -95,6 +77,7 @@ local function toKey(rect) return sformat('%dx%d',rect.w,rect.h) end
 --- hs.grid.setGrid('5x3','1920x1080') -- sets the grid to 5x3 for all screens with a 1920x1080 resolution
 --- hs.grid.setGrid{4,4} -- sets the default grid to 4x4
 
+local deleteUI
 function grid.setGrid(gr,scr)
   gr = toRect(gr)
   if not gr then error('Invalid grid',2) return end
@@ -109,6 +92,7 @@ function grid.setGrid(gr,scr)
   gridSizes[scr]=gr
   if scr==1 then log.f('Default grid set to %d by %d',gr.w,gr.h)
   else log.f('Grid for %s set to %d by %d',tostring(scr),gr.w,gr.h) end
+  deleteUI()
   return grid
 end
 
@@ -128,7 +112,7 @@ function grid.setMargins(mar)
   mar=toRect(mar)
   if not mar then error('Invalid margins',2) return end
   margins=mar
-  log.f('Window margin set to %d,%d',margins.w,margins.h)
+  log.f('Window margins set to %d,%d',margins.w,margins.h)
   return grid
 end
 
@@ -586,7 +570,7 @@ local COLOR_YELLOW={red=0.8,green=0.75,blue=0,alpha=1}
 local uielements -- drawing objects
 local resizing -- modal "hotkey"
 
-local function deleteUI()
+deleteUI=function()
   if not uielements then return end
   for _,s in pairs(uielements) do
     s.howto.rect:delete() s.howto.text:delete()
@@ -600,11 +584,12 @@ local function makeUI()
   deleteUI()
   uielements = {}
   local screens = screen.allScreens()
+  local function dist(i,w1,w2) return round((i-1)/w1*w2)+1 end
   for i,screen in ipairs(screens) do
     local w,h = grid.getGrid(screen)
     local cellw,cellh = getCellSize(screen)
     local frame = screen:frame()
-    log.f('Screen #%d %s (%s) -> grid %d by %d (%dx%d cells)',i,screen:name(),toKey(frame),w,h,cellw,cellh)
+    log.f('Screen #%d %s (%s) -> grid %d by %d (%dx%d cells)',i,screen:name(),toKey(frame),w,h,floor(cellw),floor(cellh))
     local htf = {w=500,h=100}
     htf.x = frame.x+frame.w/2-htf.w/2  htf.y = frame.y+frame.h/2-htf.h/2
     if fmod(h,2)==1 then htf.y=htf.y-cellh/2 end
@@ -620,39 +605,29 @@ local function makeUI()
       screen=screen, frame=frame,
       howto={rect=howtorect,text=howtotext},
       hints={}}
-    -- map hints onto our grid (which can be larger in either dimension)
-    local hintsmap = {}
-    for y=1,h do hintsmap[y]={} end
-    local hintsw,hintsh = #grid.HINTS[1],#grid.HINTS
-    local minw,minh = min(w,hintsw),min(h,hintsh)
-    for y=1,minh do
-      for x=1,minw do
-        local nx,ny = x,y
-        if w>hintsw then nx=round((x-1)/(hintsw-1)*(w-1))+1 end
-        if h>hintsh then ny=round((y-1)/(hintsh-1)*(h-1))+1 end
-        --        if x==1 then nx=1 elseif x==minw then nx=w end
-        --        if y==1 then ny=1 elseif y==minh then ny=h end
-        hintsmap[ny][nx]=grid.HINTS[HINTS_ROWS[minh][y]][x]
-      end
-    end
     -- create the ui for cells
-    local ix=0
-    for x=frame.x,frame.x+frame.w-2,cellw do
-      ix=ix+1
-      local iy=0
-      for y=frame.y,frame.y+frame.h-2,cellh do
-        iy=iy+1
-        local elem = {x=x,y=y,w=cellw,h=cellh}
+    local hintsw,hintsh = #grid.HINTS[1],#grid.HINTS
+    for hx=min(hintsw,w),1,-1 do
+      local cx,cx2 = hx,hx+1
+      -- allow for grid width > # available hint columns
+      if w>hintsw then cx=dist(cx,hintsw,w) cx2=dist(cx2,hintsw,w) end
+      local x,x2 = frame.x+cellw*(cx-1),frame.x+cellw*(cx2-1)
+      for hy=min(hintsh,h),1,-1 do
+        local cy,cy2 = hy,hy+1
+        -- allow for grid heigth > # available hint rows
+        if h>hintsh then cy=dist(cy,hintsh,h) cy2=dist(cy2,hintsh,h) end
+        local y,y2 = frame.y+cellh*(cy-1),frame.y+cellh*(cy2-1)
+        local elem = {x=x,y=y,w=x2-x,h=y2-y}
         local rect = drawing.rectangle(elem)
         rect:setFill(true) rect:setFillColor(COLOR_DARKOVERLAY)
         rect:setStroke(true) rect:setStrokeColor(COLOR_BLACK) rect:setStrokeWidth(5)
         elem.rect = rect
-        elem.hint = hintsmap[iy][ix]
-        local text=drawing.text({x=x+cellw/2-100,y=y+cellh/2-100,w=200,h=200},elem.hint or '')
+        elem.hint = grid.HINTS[HINTS_ROWS[min(h,hintsh)][hy]][hx]
+        local text=drawing.text({x=x+(x2-x)/2-100,y=y+(y2-y)/2-100,w=200,h=200},elem.hint)
         text:setTextSize(200)--ystep/3*2)
         text:setTextColor(COLOR_WHITE)
         elem.text=text
-        log.vf('[%d] %s %d,%dx%d,%d',i,elem.hint,elem.x,elem.y,elem.x+elem.w,elem.y+elem.h)
+        log.vf('[%d] %s %.0f,%.0f>%.0f,%.0f',i,elem.hint,elem.x,elem.y,elem.x+elem.w,elem.y+elem.h)
         tinsert(uielements[sid].hints,elem)
       end
     end
@@ -667,7 +642,7 @@ local function showGrid(id)
   uielements[id].howto.rect:show() uielements[id].howto.text:show()
 end
 local function hideGrid(id)
-  if not id or not uielements[id] then --[[log.e('Cannot obtain current screen') --]] return end
+  if not id or not uielements or not uielements[id] then --[[log.e('Cannot obtain current screen') --]] return end
   uielements[id].howto.rect:hide() uielements[id].howto.text:hide()
   local elems = uielements[id].hints
   for _,e in pairs(elems) do e.rect:hide() e.text:hide() end
@@ -741,7 +716,7 @@ local function _start()
       y1,y2 = min(selectedElem.y,elem.y)+margins.w,max(selectedElem.y,elem.y)-margins.h
       local frame={x=x1,y=y1,w=x2-x1+elem.w,h=y2-y1+elem.h}
       currentWindow:setFrame(frame,0)
-      log.f('move to %d,%d[%dx%d]',frame.x,frame.y,frame.w,frame.h)
+      log.f('move to %.0f,%.0f[%.0fx%.0f]',frame.x,frame.y,frame.w,frame.h)
       resizing:exit()
     end
   end
@@ -807,6 +782,22 @@ end
 --- Notes:
 ---   * Legacy variable; use `setGrid` instead
 --grid.GRIDWIDTH = 3
+setmetatable(grid,{
+  __index = function(t,k)
+    if k=='GRIDWIDTH' then return gridSizes[1].w
+    elseif k=='GRIDHEIGHT' then return gridSizes[1].h
+    elseif k=='MARGINX' then return margins.w
+    elseif k=='MARGINY' then return margins.h
+    else return rawget(t,k) end
+  end,
+  __newindex = function(t,k,v)
+    if k=='GRIDWIDTH' then grid.setGrid{v,gridSizes[1].h}
+    elseif k=='GRIDHEIGHT' then grid.setGrid{gridSizes[1].w,v}
+    elseif k=='MARGINX' then grid.setMargins{v,margins.h}
+    elseif k=='MARGINY' then grid.setMargins{margins.w,v}
+    else rawset(t,k,v) end
+  end,
+}) -- metatable for legacy variables
 
 --- hs.grid.adjustNumberOfRows(delta) -> number
 --- Function
@@ -841,10 +832,11 @@ grid.adjustHeight = grid.adjustNumberOfRows
 --- Notes:
 ---  * Legacy function; use `getGrid` and `setGrid` instead
 ---  * Screens with a specified grid (via `setGrid`) won't be affected, as this function only alters the default grid
-function grid.adjustWidth(delta)
+function grid.adjustNumberOfColumns(delta)
   grid.GRIDWIDTH = max(1, grid.GRIDWIDTH + delta)
   fnutils.map(window.visibleWindows(), grid.snap)
 end
 grid.adjustWidth = grid.adjustNumberOfColumns
+
 
 return grid
