@@ -24,7 +24,7 @@ local newmodal = require'hs.hotkey'.modal.new
 local log = require'hs.logger'.new('grid')
 
 local ipairs,pairs,min,max,floor,fmod = ipairs,pairs,math.min,math.max,math.floor,math.fmod
-local sformat,smatch,type,tonumber,tostring = string.format,string.match,type,tonumber,tostring
+local sformat,smatch,type,tonumber,tostring,tinsert = string.format,string.match,type,tonumber,tostring,table.insert
 local setmetatable,rawget,rawset=setmetatable,rawget,rawset
 
 
@@ -95,9 +95,9 @@ local function toKey(rect) return sformat('%dx%d',rect.w,rect.h) end
 --- hs.grid.setGrid('5x3','1920x1080') -- sets the grid to 5x3 for all screens with a 1920x1080 resolution
 --- hs.grid.setGrid{4,4} -- sets the default grid to 4x4
 
-function grid.setGrid(grid,scr)
-  grid = toRect(grid)
-  if not grid then error('Invalid grid',2) return end
+function grid.setGrid(gr,scr)
+  gr = toRect(gr)
+  if not gr then error('Invalid grid',2) return end
   if scr~=nil then
     if type(scr)=='userdata' and scr.id then scr=scr:id() end
     if type(scr)~='number' then scr=toRect(scr) end
@@ -105,10 +105,10 @@ function grid.setGrid(grid,scr)
   else scr=1 end
   if type(scr)~='number' then scr=toKey(scr) end
   --    grid.w=min(grid.w,#HINTS[1]) grid.h=min(grid.h,#HINTS)
-  grid.w=min(grid.w,50) grid.h=min(grid.h,50) -- cap grid to 50x50, just in case
-  gridSizes[scr]=grid
-  if scr==1 then log.f('Default grid set to %d by %d',grid.w,grid.h)
-  else log.f('Grid for %s set to %d by %d',tostring(scr),grid.w,grid.h) end
+  gr.w=min(gr.w,50) gr.h=min(gr.h,50) -- cap grid to 50x50, just in case
+  gridSizes[scr]=gr
+  if scr==1 then log.f('Default grid set to %d by %d',gr.w,gr.h)
+  else log.f('Grid for %s set to %d by %d',tostring(scr),gr.w,gr.h) end
   return grid
 end
 
@@ -129,6 +129,7 @@ function grid.setMargins(mar)
   if not mar then error('Invalid margins',2) return end
   margins=mar
   log.f('Window margin set to %d,%d',margins.w,margins.h)
+  return grid
 end
 
 
@@ -187,6 +188,13 @@ end
 
 
 
+
+local function getCellSize(screen)
+  local gridw,gridh = grid.getGrid(screen)
+  local screenframe = screen:frame()
+  return screenframe.w/gridw, screenframe.h/gridh
+end
+
 local function round(num, idp)
   local mult = 10^(idp or 0)
   return floor(num * mult + 0.5) / mult
@@ -207,12 +215,11 @@ function grid.get(win)
   if not winscreen then
     return nil
   end
-  local gridw,gridh = grid.getGrid(winscreen)
-  local screenrect = win:screen():frame()
-  local cellw, cellh = screenrect.w/gridw, screenrect.h/gridh
+  local screenframe = winscreen:frame()
+  local cellw, cellh = getCellSize(winscreen)
   return {
-    x = round((winframe.x - screenrect.x) / cellw),
-    y = round((winframe.y - screenrect.y) / cellh),
+    x = round((winframe.x - screenframe.x) / cellw),
+    y = round((winframe.y - screenframe.y) / cellh),
     w = max(1, round(winframe.w / cellw)),
     h = max(1, round(winframe.h / cellh)),
   }
@@ -379,18 +386,19 @@ end
 function grid.pushWindowLeft(win)
   --  grid.adjustWindow(function(f) f.x = max(f.x - 1, 0) end, win)
   if not win then win = window.focusedWindow() end
-  local w,h = grid.getGrid(win:screen())
+  local winscreen = win:screen()
+  local w,h = grid.getGrid(winscreen)
   local f = grid.get(win)
-  local nx = f.x-1
-  if nx<0 then
+  if f.x<=0 then
     -- go to left screen
-    local newscreen=win:screen():toWest()
+    local frame=win:frame()
+    local newscreen=winscreen:toWest(frame)
     if newscreen then
-      local neww = grid.getGrid(newscreen)
-      f.x = neww-f.w
-      grid.set(win,f,newscreen)
+      frame.x = frame.x-frame.w
+      win:setFrame(frame) win:ensureIsInScreenBounds()
+      grid.snap(win)
     end
-  else grid.adjustWindow(function(f)f.x=nx end, win) end
+  else grid.adjustWindow(function(f)f.x=f.x-1 end, win) end
   return grid
 end
 
@@ -405,18 +413,20 @@ end
 ---  * The `hs.grid` module for method chaining
 function grid.pushWindowRight(win)
   if not win then win = window.focusedWindow() end
-  local w,h = grid.getGrid(win:screen())
+  local winscreen = win:screen()
+  local w,h = grid.getGrid(winscreen)
   --  grid.adjustWindow(function(f) f.x = min(f.x + 1, w - f.w) end, win)
   local f = grid.get(win)
-  local nx = f.x+1
-  if nx+f.w>w then
+  if f.x+f.w>=w then
     -- go to right screen
-    local newscreen=win:screen():toEast()
+    local frame=win:frame()
+    local newscreen=winscreen:toEast(frame)
     if newscreen then
-      f.x = 0
-      grid.set(win,f,newscreen)
+      frame.x = frame.x+frame.w
+      win:setFrame(frame) win:ensureIsInScreenBounds()
+      grid.snap(win)
     end
-  else grid.adjustWindow(function(f)f.x=nx end, win) end
+  else grid.adjustWindow(function(f)f.x=f.x+1 end, win) end
   return grid
 end
 
@@ -469,18 +479,20 @@ end
 ---  * The `hs.grid` module for method chaining
 function grid.pushWindowDown(win)
   if not win then win = window.focusedWindow() end
-  local w,h = grid.getGrid(win:screen())
+  local winscreen = win:screen()
+  local w,h = grid.getGrid(winscreen)
   --  grid.adjustWindow(function(f) f.y = min(f.y + 1, h - f.h) end, win)
   local f = grid.get(win)
-  local ny = f.y+1
-  if ny+f.h>h then
+  if f.y+f.h>=h then
     -- go to screen below
-    local newscreen=win:screen():toSouth()
+    local frame=win:frame()
+    local newscreen=winscreen:toSouth(frame)
     if newscreen then
-      f.y = 0
-      grid.set(win,f,newscreen)
+      frame.y = frame.y+frame.h
+      win:setFrame(frame) win:ensureIsInScreenBounds()
+      grid.snap(win)
     end
-  else grid.adjustWindow(function(f)f.y=ny end, win) end
+  else grid.adjustWindow(function(f)f.y=f.y+1 end, win) end
   return grid
 end
 
@@ -496,18 +508,19 @@ end
 function grid.pushWindowUp(win)
   --  grid.adjustWindow(function(f) f.y = max(f.y - 1, 0) end, win)
   if not win then win = window.focusedWindow() end
-  local w,h = grid.getGrid(win:screen())
+  local winscreen = win:screen()
+  local w,h = grid.getGrid(winscreen)
   local f = grid.get(win)
-  local ny = f.y-1
-  if ny<0 then
+  if f.y<=0 then
     -- go to screen above
-    local newscreen=win:screen():toNorth()
+    local frame=win:frame()
+    local newscreen=winscreen:toNorth(frame)
     if newscreen then
-      local _,newh = grid.getGrid(newscreen)
-      f.y = newh-f.h
-      grid.set(win,f,newscreen)
+      frame.y = frame.y-frame.h
+      win:setFrame(frame) win:ensureIsInScreenBounds()
+      grid.snap(win)
     end
-  else grid.adjustWindow(function(f)f.y=ny end, win) end
+  else grid.adjustWindow(function(f)f.y=f.y-1 end, win) end
   return grid
 end
 
@@ -551,35 +564,211 @@ end
 
 
 
+-- modal grid stuff below
+
+grid.HINTS={{'f1','f2','f3','f4','f5','f6','f7','f8'},
+  {'1','2','3','4','5','6','7','8'},
+  {'Q','W','E','R','T','Y','U','I'},
+  {'A','S','D','F','G','H','J','K'},
+  {'Z','X','C','V','B','N','M',','}
+}
+
+local HINTS_ROWS = {{4},{3,4},{3,4,5},{2,3,4,5},{1,2,3,4,5}}
+
+local COLOR_BLACK={red=0,green=0,blue=0,alpha=1}
+local COLOR_WHITE={red=1,green=1,blue=1,alpha=1}
+local COLOR_DARKOVERLAY={red=0,green=0,blue=0,alpha=0.25}
+local COLOR_HIGHLIGHT={red=0.8,green=0.75,blue=0,alpha=0.55}
+local COLOR_SELECTED={red=0.2,green=0.75,blue=0,alpha=0.4}
+local COLOR_YELLOW={red=0.8,green=0.75,blue=0,alpha=1}
+
+
+local uielements -- drawing objects
+local resizing -- modal "hotkey"
+
+local function deleteUI()
+  if not uielements then return end
+  for _,s in pairs(uielements) do
+    s.howto.rect:delete() s.howto.text:delete()
+    for _,e in pairs(s.hints) do
+      e.rect:delete() e.text:delete()
+    end
+  end
+  uielements = nil
+end
+local function makeUI()
+  deleteUI()
+  uielements = {}
+  local screens = screen.allScreens()
+  for i,screen in ipairs(screens) do
+    local w,h = grid.getGrid(screen)
+    local cellw,cellh = getCellSize(screen)
+    local frame = screen:frame()
+    log.f('Screen #%d %s (%s) -> grid %d by %d (%dx%d cells)',i,screen:name(),toKey(frame),w,h,cellw,cellh)
+    local htf = {w=500,h=100}
+    htf.x = frame.x+frame.w/2-htf.w/2  htf.y = frame.y+frame.h/2-htf.h/2
+    if fmod(h,2)==1 then htf.y=htf.y-cellh/2 end
+    local howtorect = drawing.rectangle(htf)
+    howtorect:setFill(true) howtorect:setFillColor(COLOR_DARKOVERLAY) howtorect:setStrokeWidth(5)
+    local howtotext=drawing.text(htf,'    ←→↑↓:select screen\n  space:fullscreen esc:exit')
+    howtotext:setTextSize(40) howtotext:setTextColor(COLOR_WHITE)
+    local sid=screen:id()
+    uielements[sid] = {left=(screen:toWest() or screen):id(),
+      up=(screen:toNorth() or screen):id(),
+      right=(screen:toEast() or screen):id(),
+      down=(screen:toSouth() or screen):id(),
+      screen=screen, frame=frame,
+      howto={rect=howtorect,text=howtotext},
+      hints={}}
+    -- map hints onto our grid (which can be larger in either dimension)
+    local hintsmap = {}
+    for y=1,h do hintsmap[y]={} end
+    local hintsw,hintsh = #grid.HINTS[1],#grid.HINTS
+    local minw,minh = min(w,hintsw),min(h,hintsh)
+    for y=1,minh do
+      for x=1,minw do
+        local nx,ny = x,y
+        if w>hintsw then nx=round((x-1)/(hintsw-1)*(w-1))+1 end
+        if h>hintsh then ny=round((y-1)/(hintsh-1)*(h-1))+1 end
+        --        if x==1 then nx=1 elseif x==minw then nx=w end
+        --        if y==1 then ny=1 elseif y==minh then ny=h end
+        hintsmap[ny][nx]=grid.HINTS[HINTS_ROWS[minh][y]][x]
+      end
+    end
+    -- create the ui for cells
+    local ix=0
+    for x=frame.x,frame.x+frame.w-2,cellw do
+      ix=ix+1
+      local iy=0
+      for y=frame.y,frame.y+frame.h-2,cellh do
+        iy=iy+1
+        local elem = {x=x,y=y,w=cellw,h=cellh}
+        local rect = drawing.rectangle(elem)
+        rect:setFill(true) rect:setFillColor(COLOR_DARKOVERLAY)
+        rect:setStroke(true) rect:setStrokeColor(COLOR_BLACK) rect:setStrokeWidth(5)
+        elem.rect = rect
+        elem.hint = hintsmap[iy][ix]
+        local text=drawing.text({x=x+cellw/2-100,y=y+cellh/2-100,w=200,h=200},elem.hint or '')
+        text:setTextSize(200)--ystep/3*2)
+        text:setTextColor(COLOR_WHITE)
+        elem.text=text
+        log.vf('[%d] %s %d,%dx%d,%d',i,elem.hint,elem.x,elem.y,elem.x+elem.w,elem.y+elem.h)
+        tinsert(uielements[sid].hints,elem)
+      end
+    end
+  end
+end
+
+
+local function showGrid(id)
+  if not id or not uielements[id] then log.e('Cannot get current screen, aborting') return end
+  local elems = uielements[id].hints
+  for _,e in ipairs(elems) do e.rect:show() e.text:show() end
+  uielements[id].howto.rect:show() uielements[id].howto.text:show()
+end
+local function hideGrid(id)
+  if not id or not uielements[id] then --[[log.e('Cannot obtain current screen') --]] return end
+  uielements[id].howto.rect:hide() uielements[id].howto.text:hide()
+  local elems = uielements[id].hints
+  for _,e in pairs(elems) do e.rect:hide() e.text:hide() end
+end
 
 
 
+local initialized, currentScreen, currentWindow, highlight
+local function _start()
+  if initialized then return end
+  screen.watcher.new(deleteUI):start()
+  resizing=newmodal()
+  local function showHighlight()
+    if highlight then highlight:delete() end
+    highlight = drawing.rectangle(currentWindow:frame())
+    highlight:setFill(true) highlight:setFillColor(COLOR_HIGHLIGHT)
+    highlight:setStroke(true) highlight:setStrokeColor(COLOR_YELLOW) highlight:setStrokeWidth(30)
+    highlight:show()
+  end
+  function resizing:entered()
+    currentWindow = window.focusedWindow()
+    if not currentWindow then log.w('Cannot get current window, aborting') resizing:exit() return end
+    log.df('Start moving %s [%s]',currentWindow:subrole(),currentWindow:application():title())
+    --  if window:isFullScreen() then resizing:exit() alert('(')return end
+    --TODO check fullscreen
+    currentScreen = (currentWindow:screen() or screen.mainScreen()):id()
+    showHighlight()
+    if not uielements then makeUI() end
+    showGrid(currentScreen)
+  end
+  local selectedElem
+  local function clearSelection()
+    if selectedElem then
+      selectedElem.rect:setFillColor(COLOR_DARKOVERLAY)
+      selectedElem = nil
+    end
+  end
+  function resizing:exited()
+    if highlight then highlight:delete() highlight=nil end
+    clearSelection()
+    hideGrid(currentScreen)
+  end
+  resizing:bind({},'escape',function()log.d('abort move')resizing:exit()end)
+  resizing:bind({},'space',function()
+    --    local wasfs=currentWindow:isFullScreen()
+    log.d('toggle fullscreen')currentWindow:toggleFullScreen()
+    if currentWindow:isFullScreen() then resizing:exit()
+      --    elseif not wasfs then currentWindow:setFrame(currentWindow:screen():frame(),0) resizing:exit()
+    end
+  end)
+  for _,dir in ipairs({'left','right','up','down'}) do
+    resizing:bind({},dir,function()
+      log.d('select screen '..dir)
+      clearSelection() hideGrid(currentScreen)
+      currentScreen=uielements[currentScreen][dir]
+      currentWindow:moveToScreen(uielements[currentScreen].screen,0)
+      showHighlight()
+      showGrid(currentScreen)
+    end)
+  end
+  local function hintPressed(c)
+    -- find the elem; if there was a way to unbind modals, we'd unbind on screen change, and pass here the elem directly
+    local elem = fnutils.find(uielements[currentScreen].hints,function(e)return e.hint==c end)
+    if not elem then return end
+    if not selectedElem then
+      selectedElem = elem
+      elem.rect:setFillColor(COLOR_SELECTED)
+    else
+      local x1,x2,y1,y2
+      x1,x2 = min(selectedElem.x,elem.x)+margins.w,max(selectedElem.x,elem.x)-margins.h
+      y1,y2 = min(selectedElem.y,elem.y)+margins.w,max(selectedElem.y,elem.y)-margins.h
+      local frame={x=x1,y=y1,w=x2-x1+elem.w,h=y2-y1+elem.h}
+      currentWindow:setFrame(frame,0)
+      log.f('move to %d,%d[%dx%d]',frame.x,frame.y,frame.w,frame.h)
+      resizing:exit()
+    end
+  end
+  for _,row in ipairs(grid.HINTS) do
+    for _,c in ipairs(row) do
+      resizing:bind({},c,function()hintPressed(c) end)
+    end
+  end
+  --TODO perhaps disable all other keyboard input?
+  initialized=true
+end
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+--- hs.grid.show()
+--- Function
+--- Shows the resizing grid and starts the modal resizing process for the focused window.
+--- In most cases this function should be invoked via `hs.hotkey.bind` with some keyboard shortcut.
+---
+--- Parameters:
+---  * None
+---
+--- Returns:
+---  * None
+function grid.show()
+  if not initialized then _start()
+  else resizing:exit() end
+  resizing:enter()
+end
 
 
 

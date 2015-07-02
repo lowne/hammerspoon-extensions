@@ -66,7 +66,13 @@ hs.screen.toSouth=function(self) return first_screen_in_direction(self, 3) end
 
 -- end patch
 --]]
+
+-- inject the new hs.screen
+--local _=hs.screen
+
+
 hs._extensions.grid=nil -- inject the new hs.grid
+hs._extensions.screen=nil -- inject the new hs.screen
 local done,_hs={},hs
 return setmetatable({},{__index=function(t,k)
   local t=_hs[k]
