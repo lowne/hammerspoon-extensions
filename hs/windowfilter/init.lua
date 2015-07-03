@@ -7,36 +7,56 @@
 --   (how many menulets are out there?); alternatively (or additionally) the user should be able to expand both
 -- * Maybe an additional filter could be added for window geometry (e.g. minimum width/heigth/area)
 
-local ipairs,type,smatch,sformat,ssub = ipairs,type,string.match,string.format,string.sub
-
+local pairs,ipairs,type,smatch,sformat,ssub = pairs,ipairs,type,string.match,string.format,string.sub
 local log=require'hs.logger'.new('wfilter')
 
-local windowfilter={} -- module
-windowfilter.setLogLevel=function(lvl)log.setLogLevel(lvl) return windowfilter end
+local windowfilter={setLogLevel=log.setLogLevel} -- module
 
-local SKIP_APPS_NO_PID = {
-  --TODO keep this updated (used in the root filter)
-  'universalaccessd','sharingd','Safari Networking','iTunes Helper','Safari Web Content',
-  'App Store Web Content', 'Safari Database Storage',
-  'Google Chrome Helper','Spotify Helper','Karabiner_AXNotifier',
---  'Little Snitch Agent','Little Snitch Network Monitor', -- depends on security settings in Little Snitch
-}
-
+-- filter these by bundle id
 local SKIP_APPS_NO_PID_BUNDLE = {
   'com.apple.qtkitserver', -- QTKitServer-(%d) Safari Web Content
 }
 
-local SKIP_APPS_NO_WINDOWS = {
-  --TODO keep this updated (used in the root filter)
-  'com.apple.internetaccounts', 'CoreServicesUIAgent', 'AirPlayUIAgent',
-  'SystemUIServer', 'Dock', 'com.apple.dock.extra', 'storeuid',
-  'Folder Actions Dispatcher', 'Keychain Circle Notification', 'Wi-Fi',
-  'Image Capture Extensions', 'iCloud Photos', 'System Events',
-  'Speech Synthesis Server', 'Dropbox Finder Integration', 'LaterAgent',
-  'Karabiner_AXNotifier', 'Photos Agent', 'EscrowSecurityAlert',
-  'Google Chrome Helper', 'com.apple.MailServiceAgent', 'Safari Web Content',
-  'Safari Networking', 'nbagent',
-}
+
+--- hs.windowfilter.ignoreAlways
+--- Variable
+--- A table of application names (as per `hs.application:title()`) that are always ignored by this module.
+--- These are apps with no windows or any visible GUI, such as system services, background daemons and "helper" apps.
+---
+--- You can add an app to this table with `hs.windowfilter.ignoreAlways['Background App Title'] = true`
+---
+--- Notes:
+---  * As the name implies, even the empty, "allow all" windowfilter will ignore these apps.
+---  * You don't *need* to keep this table up to date, since non GUI apps will simply never show up anywhere;
+---    this table is just used as a "root" filter to gain a (very small) performance improvement.
+
+do
+  local SKIP_APPS_NO_PID = {
+    --TODO keep this updated (used in the root filter)
+    'universalaccessd','sharingd','Safari Networking','iTunes Helper','Safari Web Content',
+    'App Store Web Content', 'Safari Database Storage',
+    'Google Chrome Helper','Spotify Helper','Karabiner_AXNotifier',
+  --  'Little Snitch Agent','Little Snitch Network Monitor', -- depends on security settings in Little Snitch
+  }
+
+  local SKIP_APPS_NO_WINDOWS = {
+    --TODO keep this updated (used in the root filter)
+    'com.apple.internetaccounts', 'CoreServicesUIAgent', 'AirPlayUIAgent',
+    'SystemUIServer', 'Dock', 'com.apple.dock.extra', 'storeuid',
+    'Folder Actions Dispatcher', 'Keychain Circle Notification', 'Wi-Fi',
+    'Image Capture Extensions', 'iCloud Photos', 'System Events',
+    'Speech Synthesis Server', 'Dropbox Finder Integration', 'LaterAgent',
+    'Karabiner_AXNotifier', 'Photos Agent', 'EscrowSecurityAlert',
+    'Google Chrome Helper', 'com.apple.MailServiceAgent', 'Safari Web Content',
+    'Safari Networking', 'nbagent',
+  }
+  windowfilter.ignoreAlways = {}
+  for _,list in ipairs{SKIP_APPS_NO_PID,SKIP_APPS_NO_WINDOWS} do
+    for _,appname in ipairs(list) do
+      windowfilter.ignoreAlways[appname] = true
+    end
+  end
+end
 
 local SKIP_APPS_TRANSIENT_WINDOWS = {
   --TODO keep this updated (used in the default filter)
@@ -48,21 +68,24 @@ local SKIP_APPS_TRANSIENT_WINDOWS = {
   'CrashPlan menu bar', 'Flux', 'Jettison', 'Bartender', 'SystemPal', 'BetterSnapTool', 'Grandview', 'Radium',
 }
 
-local APPS_ALLOW_NONSTANDARD_WINDOWS = {
-  --TODO keep this updated (used in the default filter)
-  'iTerm2', --[['Lua Development Tools Product', 'SwitchResX Daemon',]]
-}
+--[=[
+  windowfilter.ignoreInDefaultFilter = {}
+  for _,appname in ipairs(SKIP_APPS_TRANSIENT_WINDOWS) do
+    windowfilter.ignoreInDefaultFilter[appname] = true
+  end
+  local ALLOWED_NONSTANDARD_WINDOW_ROLES = {'AXStandardWindow','AXDialog','AXFloatingWindow','AXSystemDialog'}
+  local APPS_ALLOW_NONSTANDARD_WINDOWS = {
+    'iTerm2',
+  }
 
-local APPS_SKIP_NO_TITLE = {
-  --TODO keep this updated (used in the default filter)
-  'Lua Development Tools Product'
-}
+  local APPS_SKIP_NO_TITLE = {
+    'Lua Development Tools Product'
+  }
+--]=]  
 
-local ALLOWED_NONSTANDARD_WINDOW_ROLES = {'AXStandardWindow','AXDialog','AXFloatingWindow','AXSystemDialog'}
 local ALLOWED_WINDOW_ROLES = {'AXStandardWindow','AXDialog','AXSystemDialog'}
 
 local wf={} -- class
-
 --- hs.windowfilter:isWindowAllowed(window) -> bool
 --- Method
 --- Checks if a window is allowed by the windowfilter
@@ -73,7 +96,7 @@ local wf={} -- class
 --- Returns:
 ---  * - `true` if the window is allowed by the windowfilter; `false` otherwise
 
-function wf:isWindowAllowed(window,appname)--appname,windowrole,windowtitle)
+function wf:isWindowAllowed(window,appname)
   local function matchTitle(titles,t)
     for _,title in ipairs(titles) do
       if smatch(t,title) then return true end
@@ -102,6 +125,10 @@ function wf:isWindowAllowed(window,appname)--appname,windowrole,windowtitle)
     return r
   end
   appname = appname or window:application():title()
+  if not windowfilter.isGuiApp(appname) then
+    --this would need fixing .ignoreAlways
+    log.wf('%s (%s) rejected: should be a non-GUI app!',role,appname) return false
+  end
   app=self.apps[appname]
   if app==false then log.vf('%s (%s) rejected: app reject',role,appname) return false
   elseif app then
@@ -116,7 +143,7 @@ function wf:isWindowAllowed(window,appname)--appname,windowrole,windowtitle)
     log.vf('%s (%s) %s: default filter',role,appname,r and 'allowed' or 'rejected')
     return r
   end
-  log.vf('%s (%s) accepted (no rules)',role,appname)
+  log.vf('%s (%s) allowed (no rules)',role,appname)
   return true
 end
 
@@ -131,7 +158,7 @@ end
 ---  * `false` if the app is rejected by the windowfilter; `true` otherwise
 
 function wf:isAppAllowed(appname)
-  return self.apps[appname]~=false
+  return windowfilter.isGuiApp(appname) and self.apps[appname]~=false
 end
 
 --- hs.windowfilter:filterWindows(windows) -> table
@@ -166,6 +193,18 @@ function wf:rejectApp(appname)
   return self:setAppFilter(appname,false)
 end
 
+--- hs.windowfilter:allowApp(appname) -> hs.windowfilter
+--- Method
+--- Sets the windowfilter to allow all windows belonging to a specific app
+---
+--- Parameters:
+---  * appname - app name as per `hs.application:title()`
+---
+--- Returns:
+---  * the `hs.windowfilter` object for method chaining
+function wf:allowApp(appname)
+  return self:setAppFilter(appname,nil,nil,ALLOWED_WINDOW_ROLES,nil,true)
+end
 --- hs.window:setDefaultFilter(allowTitles, rejectTitles, allowRoles, fullscreen, visible) -> hs.windowfilter
 --- Method
 --- Set the default filtering rules to be used for apps without app-specific rules
@@ -209,7 +248,7 @@ end
 
 --- hs.window:setAppFilter(appname, allowTitles, rejectTitles, allowRoles, fullscreen, visible) -> hs.windowfilter
 --- Method
---- Sets the filtering rules for the windows of a specific app
+--- Sets the detailed filtering rules for the windows of a specific app
 ---
 --- Parameters:
 ---  * appname - app name as per `hs.application:title()`
@@ -227,10 +266,9 @@ end
 ---  * if any parameter (other than `appname`) is `nil` the relevant rule is ignored
 function wf:setAppFilter(appname,allowTitles,rejectTitles,allowRoles,fullscreen,visible)
   if type(appname)~='string' and type(appname)~='boolean' then error('appname must be a string or boolean',2) end
-  local logs = 'setting '
+  local logs
   if type(appname)=='boolean' then logs=sformat('setting %s filter: ',appname==true and 'override' or 'default')
   else logs=sformat('setting filter for %s: ',appname) end
-
 
   if allowTitles==false then
     log.d(logs..'reject')
@@ -238,7 +276,7 @@ function wf:setAppFilter(appname,allowTitles,rejectTitles,allowRoles,fullscreen,
     return self
   end
 
-  local app = self.apps[appname] or {}
+  local app = --[[self.apps[appname] or--]] {} -- always override
   if allowTitles~=nil then
     local titles=allowTitles
     if type(allowTitles)=='string' then titles={allowTitles}
@@ -278,10 +316,10 @@ end
 ---  * fn - if `nil`, returns a copy of the default windowfilter; you can then further restrict or expand it
 ---       - if `true`, returns an empty windowfilter that allows every window
 ---       - if `false`, returns a windowfilter with a default rule to reject every window
---        - if a string or table of strings, returns a copy of the default windowfilter that only accepts the specified apps
----       - otherwise it must be a function that accepts a `hs.window` and returns `true` if the window is allowed or `false` otherwise; this way you can define a custom windowfilter
----  * includeFullscreen - only valid when `fn` is nil; if true fullscreen windows will be accepted
----  * includeInvisible - only valid when `fn` is nil; if true invisible windows will be accepted
+--        - if a string or table of strings, returns a copy of the default windowfilter that only allows the specified apps
+---       - otherwise it must be a function that accepts an `hs.window` object and returns `true` if the window is allowed or `false` otherwise; this way you can define a fully custom windowfilter
+---  * includeFullscreen - only valid when `fn` is nil; if true fullscreen windows will be allowed
+---  * includeInvisible - only valid when `fn` is nil; if true invisible windows will be allowed
 ---
 --- Returns:
 ---  * a new windowfilter instance
@@ -305,19 +343,21 @@ function windowfilter.new(fn,includeFullscreen,includeInvisible)
   local isTable=type(fn)=='table'
   local o = setmetatable({apps={}},{__index=wf})
   if fn==nil or isTable then
-    for _,list in ipairs{SKIP_APPS_NO_PID,SKIP_APPS_NO_WINDOWS,SKIP_APPS_TRANSIENT_WINDOWS} do
-      for _,appname in ipairs(list) do
-        o:rejectApp(appname)
-      end
+    --    for appname in pairs(windowfilter.ignoreAlways) do
+    --      o:rejectApp(appname)
+    --    end
+    for _,appname in ipairs(SKIP_APPS_TRANSIENT_WINDOWS) do
+      o:rejectApp(appname)
     end
     if not isTable then
       log.i('new windowfilter, default windowfilter copy')
-      for _,appname in ipairs(APPS_ALLOW_NONSTANDARD_WINDOWS) do
+      --[[      for _,appname in ipairs(APPS_ALLOW_NONSTANDARD_WINDOWS) do
         o:setAppFilter(appname,nil,nil,ALLOWED_NONSTANDARD_WINDOW_ROLES)
       end
       for _,appname in ipairs(APPS_SKIP_NO_TITLE) do
         o:setAppFilter(appname,1)
       end
+--]]
       o:setAppFilter('Hammerspoon',{'Preferences','Console'})
       local fs,vis=false,true
       if includeFullscreen then fs=nil end
@@ -326,8 +366,9 @@ function windowfilter.new(fn,includeFullscreen,includeInvisible)
     else
       log.i('new windowfilter, reject all with exceptions')
       for _,app in ipairs(fn) do
-        log.i('allow '..app)
-        o:setAppFilter(app,nil,nil,ALLOWED_NONSTANDARD_WINDOW_ROLES,nil,true)
+        --        log.i('allow '..app)
+        --        o:setAppFilter(app,nil,nil,ALLOWED_NONSTANDARD_WINDOW_ROLES,nil,true)
+        o:allowApp(app)
       end
       o:setDefaultFilter(false)
     end
@@ -337,26 +378,28 @@ function windowfilter.new(fn,includeFullscreen,includeInvisible)
   else error('fn must be nil, a boolean, a string or table of strings, or a function',2) end
 end
 
+
 --- hs.windowfilter.default
 --- Constant
---- The default windowfilter; it filters nonstandard or transient windows (floating windows, menulet windows, notifications etc.), fullscreen windows, and invisible windows
+--- The default windowfilter; it filters apps whose windows are transient in nature so that you're unlikely
+--- (and often unable) to do anything with them, such as launchers, menulets, preference pane apps, screensavers, etc.
+--- It also filters nonstandard windows, fullscreen windows, and invisible windows.
 ---
 --- Notes:
----  * while you can customize the default windowfilter, it's advisable to make your customizations on a local copy via `hs.windowfilter.new()`
+---  * While you can customize the default windowfilter, it's usually advisable to make your customizations on a local copy via `mywf=hs.windowfilter.new()`;
+--     the default windowfilter can potentially be used in several Hammerspoon modules and changing it might have unintended consequences.
+---  * If you still want to alter the default windowfilter:
+---    * to list the known exclusions: `hs.windowfilter.setLogLevel('debug')`; the console will log them upon instantiating the default windowfilter
+---    * to add an exclusion: `hs.windowfilter.default:rejectApp'Cool New Launcher'`
+---    * to remove an exclusion (e.g. if you want to have access to Spotlight windows): `hs.windowfilter.default:allowApp'Spotlight'`;
+---      for specialized uses you can make a specific windowfilter with `myfilter=hs.windowfilter.new'Spotlight'`
 
-windowfilter.default = windowfilter.new()
-log.i('default windowfilter instantiated')
-local appstoskip={}
-for _,list in ipairs{SKIP_APPS_NO_PID,SKIP_APPS_NO_WINDOWS} do
-  for _,appname in ipairs(list) do
-    appstoskip[appname]=true
-    --    skipnonguiapps:rejectApp(appname)
-  end
-end
+local defaultwf
+--windowfilter.default = windowfilter.new()
 
 --- hs.windowfilter.isGuiApp(appname) -> bool
 --- Function
---- Checks whether an app is a known non-GUI app
+--- Checks whether an app is a known non-GUI app, as per `hs.windowfilter.ignoreAlways`
 ---
 --- Parameters:
 ---  * appname - name of the app to check as per `hs.application:title()`
@@ -364,14 +407,20 @@ end
 --- Returns:
 ---  * `false` if the app is a known non-GUI (or not accessible) app; `true` otherwise
 
--- TODO make this user-expandable
 windowfilter.isGuiApp = function(appname)
   if not appname then return true
-  elseif appstoskip[appname] then return false
+  elseif windowfilter.ignoreAlways[appname] then return false
   elseif ssub(appname,1,12)=='QTKitServer-' then return false
   else return true end
 end
 
 
-return windowfilter
+return setmetatable(windowfilter,{
+  __index=function(t,k)
+    if k=='default' then
+      if not defaultwf then defaultwf=windowfilter.new() log.i('default windowfilter instantiated') end
+      return defaultwf
+    else return rawget(t,k) end
+  end,
+})
 
