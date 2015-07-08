@@ -28,9 +28,10 @@ local next,tsort,tinsert,setmetatable = next,table.sort,table.insert,setmetatabl
 local timer = require 'hs.timer'
 local application,window = require'hs.application',require'hs.window'
 local appwatcher,uiwatcher = application.watcher, require'hs.uielement'.watcher
-local log = require'hs.logger'.new('wfilter')
-local windowfilter={setLogLevel=log.setLogLevel} -- module
+local logger = require'hs.logger'
+local log = logger.new('wfilter')
 
+local windowfilter={} -- module
 
 local function sortedinsert(t,elem,comp)
   local i = 1
@@ -114,7 +115,15 @@ local SKIP_APPS_TRANSIENT_WINDOWS = {
   }
 --]=]  
 
-local ALLOWED_WINDOW_ROLES = {'AXStandardWindow','AXDialog','AXSystemDialog'}
+--- hs.windowfilter.allowedWindowRoles
+--- Variable
+--- A list of window roles (as per `hs.window:subrole()`) that are allowed by default.
+---
+--- Notes:
+---  * You can have fine grained control of allowed window roles via the `setAppFilter`, `setDefaultFilter`, `setOverrideFilter` methods.
+---  * If you know what you're doing you can override the allowed window roles globally by changing this variable, but this is discouraged.
+windowfilter.allowedWindowRoles = {'AXStandardWindow','AXDialog','AXSystemDialog'}
+
 
 local wf={} -- class
 -- .apps = filters set
@@ -153,32 +162,32 @@ function wf:isWindowAllowed(window,appname)
   local fullscreen = window:isFullScreen() or false
   local visible = window:isVisible() or false
   local app=self.apps[true]
-  if app==false then log.vf('%s rejected: override reject',role)return false
+  if app==false then self.log.vf('%s rejected: override reject',role)return false
   elseif app then
     local r=allowWindow(app,role,title,fullscreen,visible)
-    log.vf('%s %s: override filter',role,r and 'allowed' or 'rejected')
+    self.log.vf('%s %s: override filter',role,r and 'allowed' or 'rejected')
     return r
   end
   appname = appname or window:application():title()
   if not windowfilter.isGuiApp(appname) then
     --this would need fixing .ignoreAlways
-    log.wf('%s (%s) rejected: should be a non-GUI app!',role,appname) return false
+    self.log.wf('%s (%s) rejected: should be a non-GUI app!',role,appname) return false
   end
   app=self.apps[appname]
-  if app==false then log.vf('%s (%s) rejected: app reject',role,appname) return false
+  if app==false then self.log.vf('%s (%s) rejected: app reject',role,appname) return false
   elseif app then
     local r=allowWindow(app,role,title,fullscreen,visible)
-    log.vf('%s (%s) %s: app filter',role,appname,r and 'allowed' or 'rejected')
+    self.log.vf('%s (%s) %s: app filter',role,appname,r and 'allowed' or 'rejected')
     return r
   end
   app=self.apps[false]
-  if app==false then log.vf('%s (%s) rejected: default reject',role,appname) return false
+  if app==false then self.log.vf('%s (%s) rejected: default reject',role,appname) return false
   elseif app then
     local r=allowWindow(app,role,title,fullscreen,visible)
-    log.vf('%s (%s) %s: default filter',role,appname,r and 'allowed' or 'rejected')
+    self.log.vf('%s (%s) %s: default filter',role,appname,r and 'allowed' or 'rejected')
     return r
   end
-  log.vf('%s (%s) allowed (no rules)',role,appname)
+  self.log.vf('%s (%s) allowed (no rules)',role,appname)
   return true
 end
 
@@ -231,7 +240,7 @@ end
 
 --- hs.windowfilter:allowApp(appname) -> hs.windowfilter
 --- Method
---- Sets the windowfilter to allow all windows belonging to a specific app
+--- Sets the windowfilter to allow all visible windows belonging to a specific app
 ---
 --- Parameters:
 ---  * appname - app name as per `hs.application:title()`
@@ -239,25 +248,17 @@ end
 --- Returns:
 ---  * the `hs.windowfilter` object for method chaining
 function wf:allowApp(appname)
-  return self:setAppFilter(appname,nil,nil,ALLOWED_WINDOW_ROLES,nil,true)
+  return self:setAppFilter(appname,nil,nil,windowfilter.allowedWindowRoles,nil,true)
 end
 --- hs.windowfilter:setDefaultFilter(allowTitles, rejectTitles, allowRoles, fullscreen, visible) -> hs.windowfilter
 --- Method
 --- Set the default filtering rules to be used for apps without app-specific rules
 ---
 --- Parameters:
----  * allowTitles - if a number, only allow windows whose title is at least as many characters long; e.g. pass `1` to filter windows with an empty title
----                - if a string or table of strings, only allow windows whose title matches (one of) the pattern(s) as per `string.match`
----  * rejectTitles - string or table of strings, reject windwos whose titles matches (one of) the pattern(s) as per `string.match`
----  * allowRoles - string or table of strings, only allow these window roles as per `hs.window:subrole()`
----  * fullscreen - if `true`, only allow fullscreen windows; if `false`, reject fullscreen windows
----  * visible - if `true`, only allow visible windows; if `false`, reject visible windows
+---   allowTitles, rejectTitles, allowRoles, fullscreen, visible - see `hs.windowfilter:setAppFilter`
 ---
 --- Returns:
 ---  * the `hs.windowfilter` object for method chaining
----
---- Notes:
----  * if any parameter is `nil` the relevant rule is ignored
 function wf:setDefaultFilter(...)
   return self:setAppFilter(false,...)
 end
@@ -266,18 +267,10 @@ end
 --- Set overriding filtering rules that will be applied for all apps before any app-specific rules
 ---
 --- Parameters:
----  * allowTitles - if a number, only allow windows whose title is at least as many characters long; e.g. pass `1` to filter windows with an empty title
----                - if a string or table of strings, only allow windows whose title matches (one of) the pattern(s) as per `string.match`
----  * rejectTitles - string or table of strings, reject windwos whose titles matches (one of) the pattern(s) as per `string.match`
----  * allowRoles - string or table of strings, only allow these window roles as per `hs.window:subrole()`
----  * fullscreen - if `true`, only allow fullscreen windows; if `false`, reject fullscreen windows
----  * visible - if `true`, only allow visible windows; if `false`, reject visible windows
+---   allowTitles, rejectTitles, allowRoles, fullscreen, visible - see `hs.windowfilter:setAppFilter`
 ---
 --- Returns:
 ---  * the `hs.windowfilter` object for method chaining
----
---- Notes:
----  * if any parameter is `nil` the relevant rule is ignored
 function wf:setOverrideFilter(...)
   return self:setAppFilter(true,...)
 end
@@ -288,18 +281,22 @@ end
 ---
 --- Parameters:
 ---  * appname - app name as per `hs.application:title()`
----  * allowTitles - if a number, only allow windows whose title is at least as many characters long; e.g. pass `1` to filter windows with an empty title
----                - if a string or table of strings, only allow windows whose title matches (one of) the pattern(s) as per `string.match`
----  * rejectTitles - string or table of strings, reject windwos whose titles matches (one of) the pattern(s) as per `string.match`
----  * allowRoles - string or table of strings, only allow these window roles as per `hs.window:subrole()`
----  * fullscreen - if `true`, only allow fullscreen windows; if `false`, reject fullscreen windows
----  * visible - if `true`, only allow visible windows; if `false`, reject visible windows
+---  * allowTitles
+---    * if a number, only allow windows whose title is at least as many characters long; e.g. pass `1` to filter windows with an empty title
+---    * if a string or table of strings, only allow windows whose title matches (one of) the pattern(s) as per `string.match`
+---    * if `nil`, this rule is ignored
+---  * rejectTitles
+---    * if a string or table of strings, reject windows whose titles matches (one of) the pattern(s) as per `string.match`
+---    * if `nil`, this rule is ignored
+---  * allowRoles
+---    * if a string or table of strings, only allow these window roles as per `hs.window:subrole()`
+---    * if the special string '*', this rule is ignored (i.e. all window roles, including empty ones, are allowed)
+---    * if `nil`, use the default allowed roles (defined in `hs.window.allowedWindowRoles`)
+---  * fullscreen - if `true`, only allow fullscreen windows; if `false`, reject fullscreen windows; if `nil`, this rule is ignored
+---  * visible - if `true`, only allow visible windows; if `false`, reject visible windows; if `nil`, this rule is ignored
 ---
 --- Returns:
 ---  * the `hs.windowfilter` object for method chaining
----
---- Notes:
----  * if any parameter (other than `appname`) is `nil` the relevant rule is ignored
 local activeFilters,refreshWindows
 function wf:setAppFilter(appname,allowTitles,rejectTitles,allowRoles,fullscreen,visible)
   if type(appname)~='string' and type(appname)~='boolean' then error('appname must be a string or boolean',2) end
@@ -326,8 +323,9 @@ function wf:setAppFilter(appname,allowTitles,rejectTitles,allowRoles,fullscreen,
       logs=sformat('%srejectTitles=%s, ',logs,type(rejectTitles)=='table' and '{...}' or rejectTitles)
       app.rtitles=rtitles
     end
-    if allowRoles~=nil then
+    if allowRoles~='*' then
       local roles={}
+      if allowRoles==nil then allowRoles=hs.windowfilter.allowedWindowRoles end
       if type(allowRoles)=='string' then roles={[allowRoles]=true}
       elseif type(allowRoles)=='table' then
         for _,r in ipairs(allowRoles) do roles[r]=true end
@@ -339,16 +337,12 @@ function wf:setAppFilter(appname,allowTitles,rejectTitles,allowRoles,fullscreen,
     if visible~=nil then app.visible=visible end
     self.apps[appname]=app
   end
-  log.d(logs)
+  self.log.d(logs)
   if activeFilters[self] then refreshWindows(self) end
   return self
 end
 
---TODO put includefs,includeinvisible in notes - remove params
---TODO add loggername param
---TODO .default should include fullscreen windows
---TODO wlayouts should therefore remember and deal with fullscreen windows
---- hs.windowfilter.new(fn, includeFullscreen, includeInvisible) -> hs.windowfilter
+--- hs.windowfilter.new(fn,logname,loglevel) -> hs.windowfilter
 --- Function
 --- Creates a new hs.windowfilter instance
 ---
@@ -358,16 +352,16 @@ end
 ---       - if `false`, returns a windowfilter with a default rule to reject every window
 --        - if a string or table of strings, returns a copy of the default windowfilter that only allows the specified apps
 ---       - otherwise it must be a function that accepts an `hs.window` object and returns `true` if the window is allowed or `false` otherwise; this way you can define a fully custom windowfilter
----  * includeFullscreen - only valid when `fn` is nil; if true fullscreen windows will be allowed
----  * includeInvisible - only valid when `fn` is nil; if true invisible windows will be allowed
 ---
+---  * logname - (optional) name of the `hs.logger` instance for the new windowfilter; if omitted, the class logger will be used
+---  * loglevel - (optional) log level for the `hs.logger` instance for the new windowfilter
 --- Returns:
 ---  * a new windowfilter instance
 
-function windowfilter.new(fn,includeFullscreen,includeInvisible)
-  local o = setmetatable({apps={},events={},windows={}},{__index=wf})
+function windowfilter.new(fn,logname,loglevel)
+  local o = setmetatable({apps={},events={},windows={},log=logname and logger.new(logname,loglevel) or log},{__index=wf})
   if type(fn)=='function' then
-    log.i('new windowfilter, custom function')
+    o.log.i('new windowfilter, custom function')
     o.isAppAllowed = function()return true end
     o.isWindowAllowed = function(self,w) return fn(w) end
     return o
@@ -382,7 +376,7 @@ function windowfilter.new(fn,includeFullscreen,includeInvisible)
       o:rejectApp(appname)
     end
     if not isTable then
-      log.i('new windowfilter, default windowfilter copy')
+      o.log.i('new windowfilter, default windowfilter copy')
       --[[      for _,appname in ipairs(APPS_ALLOW_NONSTANDARD_WINDOWS) do
         o:setAppFilter(appname,nil,nil,ALLOWED_NONSTANDARD_WINDOW_ROLES)
       end
@@ -391,12 +385,12 @@ function windowfilter.new(fn,includeFullscreen,includeInvisible)
       end
 --]]
       o:setAppFilter('Hammerspoon',{'Preferences','Console'})
-      local fs,vis=false,true
-      if includeFullscreen then fs=nil end
-      if includeInvisible then vis=nil end
-      o:setDefaultFilter(nil,nil,ALLOWED_WINDOW_ROLES,fs,vis)
+      --      local fs,vis=false,true
+      --      if includeFullscreen then fs=nil end
+      --      if includeInvisible then vis=nil end
+      o:setDefaultFilter(nil,nil,nil,nil,true)
     else
-      log.i('new windowfilter, reject all with exceptions')
+      o.log.i('new windowfilter, reject all with exceptions')
       for _,app in ipairs(fn) do
         --        log.i('allow '..app)
         --        o:setAppFilter(app,nil,nil,ALLOWED_NONSTANDARD_WINDOW_ROLES,nil,true)
@@ -405,8 +399,8 @@ function windowfilter.new(fn,includeFullscreen,includeInvisible)
       o:setDefaultFilter(false)
     end
     return o
-  elseif fn==true then log.i('new empty windowfilter') return o
-  elseif fn==false then log.i('new windowfilter, reject all') o:setDefaultFilter(false)  return o
+  elseif fn==true then o.log.i('new empty windowfilter') return o
+  elseif fn==false then o.log.i('new windowfilter, reject all') o:setDefaultFilter(false)  return o
   else error('fn must be nil, a boolean, a string or table of strings, or a function',2) end
 end
 
@@ -415,17 +409,19 @@ end
 --- Constant
 --- The default windowfilter; it filters apps whose windows are transient in nature so that you're unlikely
 --- (and often unable) to do anything with them, such as launchers, menulets, preference pane apps, screensavers, etc.
---- It also filters nonstandard windows, fullscreen windows, and invisible windows.
+--- It also filters nonstandard and invisible windows.
 ---
 --- Notes:
 ---  * While you can customize the default windowfilter, it's usually advisable to make your customizations on a local copy via `mywf=hs.windowfilter.new()`;
 --     the default windowfilter can potentially be used in several Hammerspoon modules and changing it might have unintended consequences.
+--     Common customizations:
+---    * to exclude fullscreen windows: `nofs_wf=hs.windowfilter.new():setOverrideFilter(nil,nil,nil,false)`
+---    * to include invisible windows: `inv_wf=windowfilter.new():setDefaultFilter()`
 ---  * If you still want to alter the default windowfilter:
 ---    * to list the known exclusions: `hs.windowfilter.setLogLevel('debug')`; the console will log them upon instantiating the default windowfilter
 ---    * to add an exclusion: `hs.windowfilter.default:rejectApp'Cool New Launcher'`
 ---    * to remove an exclusion (e.g. if you want to have access to Spotlight windows): `hs.windowfilter.default:allowApp'Spotlight'`;
 ---      for specialized uses you can make a specific windowfilter with `myfilter=hs.windowfilter.new'Spotlight'`
-
 
 --- hs.windowfilter.isGuiApp(appname) -> bool
 --- Function
@@ -453,8 +449,6 @@ local events={windowCreated=true, windowDestroyed=true, windowMoved=true,
   --TODO perhaps windowMaximized? (compare win:frame to win:screen:frame) - or include it in windowFullscreened
   windowHidden=true, windowShown=true, windowFocused=true, windowUnfocused=true,
   windowTitleChanged=true,
-  -- meta-event
-  windowsChanged=true,
 }
 for k in pairs(events) do windowfilter[k]=k end -- expose events
 --- hs.windowfilter.windowCreated
@@ -533,7 +527,7 @@ function Window:emitEvent(event)
   for wf in pairs(activeFilters) do
     if self:setFilter(wf,event==windowfilter.windowDestroyed) and wf.notifyfn then
       -- filter status changed, call notifyfn if present
-      if not notified then log.df('Notifying windows changed') notified=true end
+      if not notified then wf.log.df('Notifying windows changed') if wf.log==log then notified=true end end
       wf.notifyfn(wf:getWindows(),event)
     end
     if wf.windows[self] then
@@ -541,7 +535,7 @@ function Window:emitEvent(event)
       -- window is currently allowed, call subscribers if any
       local fns = wf.events[event]
       if fns then
-        if not logged then log.df('Emitting %s %d (%s)',event,self.id,self.app.name) logged=true end
+        if not logged then wf.log.df('Emitting %s %d (%s)',event,self.id,self.app.name) if wf.log==log then logged=true end end
         for fn in pairs(fns) do
           fn(self.window,self.app.name)
         end
@@ -549,11 +543,12 @@ function Window:emitEvent(event)
     end
   end
 end
+
 function Window:focused()
   if global.focused==self then return log.df('Window %d (%s) already focused',self.id,self.app.name) end
   global.focused=self
   self.app.focused=self
-  self.time=timer.time()
+  self.time=timer.secondsSinceEpoch()
   self:emitEvent(windowfilter.windowFocused)
 end
 
@@ -563,15 +558,6 @@ function Window:unfocused()
   self.app.focused=nil
   self:emitEvent(windowfilter.windowUnfocused)
 end
-
---[[
-function Window:refreshFilters()
-  self.filters={} -- reset in case any filters changed
-  for wf in pairs(activeFilters) do
-    self:setFilter(wf) -- recheck the filter for all watchers
-  end
-end
---]]
 
 function Window:setFilter(wf, forceremove) -- returns true if filtering status changes
   local wasAllowed,isAllowed = wf.windows[self]--self.filters[wf]
@@ -583,7 +569,7 @@ function Window:setFilter(wf, forceremove) -- returns true if filtering status c
 end
 
 function Window.new(win,id,app,watcher)
-  local o = setmetatable({app=app,window=win,id=id,watcher=watcher,--[[filters={},--]]time=timer.time()},{__index=Window})
+  local o = setmetatable({app=app,window=win,id=id,watcher=watcher,--[[filters={},--]]time=timer.secondsSinceEpoch()},{__index=Window})
   if not win:isVisible() then o.isHidden = true end
   if win:isMinimized() then o.isMinimized = true end
   o.isFullscreen = win:isFullScreen()
@@ -596,8 +582,6 @@ function Window.new(win,id,app,watcher)
 end
 
 function Window:destroyed()
-  --  if timercancel(self.movedDelayed) then self.movedDelayed=nil end
-  --  if timercancel(self.titleDelayed) then self.titleDelayed=nil end
   if self.movedDelayed then self.movedDelayed:stop() self.movedDelayed=nil end
   if self.titleDelayed then self.titleDelayed:stop() self.titleDelayed=nil end
   self.watcher:stop()
@@ -922,17 +906,17 @@ local function subscribe(self,event,fns)
     if type(fn)~='function' then error('fn must be a function or table of functions',3) end
     if not self.events[event] then self.events[event]={} end
     self.events[event][fn]=true
-    log.df('Added callback for event %s',event)
+    self.log.df('Added callback for event %s',event)
   end
 end
 
 local function unsubscribe(self,fn)
   for event in pairs(events) do
     if self.events[event] and self.events[event][fn] then
-      log.df('Removed callback for event %s',event)
+      self.log.df('Removed callback for event %s',event)
       self.events[event][fn]=nil
       if not next(self.events[event]) then
-        log.df('No more callbacks for event %s',event)
+        self.log.df('No more callbacks for event %s',event)
         self.events[event]=nil
       end
     end
@@ -942,7 +926,7 @@ end
 
 local function unsubscribeEvent(self,event)
   if not events[event] then error('invalid event: '..event,3) end
-  if self.events[event] then log.df('Removed all callbacks for event %s',event) end
+  if self.events[event] then self.log.df('Removed all callbacks for event %s',event) end
   self.events[event]=nil
   return self
 end
@@ -950,7 +934,7 @@ end
 
 refreshWindows=function(wf)
   -- whenever a wf is edited, refresh the windows to reflect the new filter
-  log.v('Refreshing windows')
+  wf.log.v('Refreshing windows')
   for _,app in pairs(apps) do
     for _,window in pairs(app.windows) do
       window:setFilter(wf)
@@ -1164,7 +1148,7 @@ end
 --- Returns:
 ---  * the `hs.windowfilter` object for method chaining
 function wf:resume()
-  if activeFilters[self]==true then log.i('instance already running, ignoring')
+  if activeFilters[self]==true then self.log.i('instance already running, ignoring')
   else start(self) end
   return self
 end
@@ -1208,11 +1192,16 @@ end
 
 
 local defaultwf
+function windowfilter.setLogLevel(lvl)
+  log.setLogLevel(lvl)
+  if defaultwf then defaultwf.log.setLogLevel(lvl) end
+end
+
 local rawget=rawget
 return setmetatable(windowfilter,{
   __index=function(t,k)
     if k=='default' then
-      if not defaultwf then defaultwf=windowfilter.new() log.i('default windowfilter instantiated') end
+      if not defaultwf then defaultwf=windowfilter.new(nil,'wflt-def') log.i('default windowfilter instantiated') end
       return defaultwf
     else return rawget(t,k) end
   end,

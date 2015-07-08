@@ -5,12 +5,14 @@
 -- FIXME test non-auto mode
 
 --TODO constructors with a list of allowed appnames all the way down (watcher,filter)
+--TODO wlayouts should therefore remember and deal with fullscreen windows
 
-local next,ipairs,pairs,tinsert,tsort,ssub,sbyte,time,sformat=next,ipairs,pairs,table.insert,table.sort,string.sub,string.byte,os.time,string.format
-local windowwatcher=require'hs.windowwatcher'
-local screenwatcher=require'hs.screenwatcher'
+local next,ipairs,pairs,type,tinsert,tsort,ssub,sbyte,time,sformat=next,ipairs,pairs,type,table.insert,table.sort,string.sub,string.byte,os.time,string.format
+local windowfilter=require'hs.windowfilter'
+local screen=require'hs.screen'
 local settings=require'hs.settings'
-local doAfter=require'hs.delayed'.doAfter
+local timer=require'hs.timer'
+--local doAfter=require'hs.delayed'.doAfter
 local log = require'hs.logger'.new('wlayouts')
 
 local windowlayouts = {} -- class and module
@@ -41,14 +43,17 @@ end
 
 
 function windowlayouts:actualSave()
-  if self.duringAutolayout then self.saveDelayed=doAfter(self.saveDelayed,5,windowlayouts.actualSave,self)
+  self.saveDelayed=nil
+  if self.duringAutolayout then
+    self.saveDelayed=timer.doAfter(5,windowlayouts.actualSave,self)
   else
     log.i('automode layout saved')
     settings.set(KEY_LAYOUTS, self.layouts)
   end
 end
 function windowlayouts:saveSettings()
-  self.saveDelayed=doAfter(self.saveDelayed,1,windowlayouts.actualSave,self)
+  if self.saveDelayed then self.saveDelayed:stop() self.saveDelayed=nil end
+  self.saveDelayed=timer.doAfter(1,function()self:actualSave() end)
 end
 
 local function frameEqual(frame,savedwin)
@@ -249,7 +254,7 @@ function windowlayouts.switchedToSpace(space)
   for wl in pairs(instances) do
     wl.duringAutoLayout=true
   end
-  windowwatcher.switchedToSpace(space,function()
+  windowfilter.switchedToSpace(space,function()
     log.i('Entered space #'..space..', refreshing all windows')
     for wl in pairs(instances) do
       wl:refreshWindows()
@@ -336,17 +341,22 @@ function windowlayouts:refreshWindows()
   self.duringAutoLayout = true
   self.layouts[screenGeometry] = self.layouts[screenGeometry] or {}
   self.windows = self.layouts[screenGeometry]
-  local windows = self.ww:getWindows()
+  local windows = self.wf:getWindows()
   for _,w in ipairs(windows) do
     self:windowShown(w,w:application():title())
   end
-  self.layoutDelayed=doAfter(self.layoutDelayed,5,function()
+  if self.layoutDelayed then self.layoutDelayed:stop() self.layoutDelayed=nil end
+  self.layoutDelayed=timer.doAfter(5,function()
+    self.layoutDelayed = nil
     self.duringAutoLayout = nil
     log.i('Apply layout finished')
   end)
 end
 
-local function enumScreens(screens)
+local screenWatcherDelayed
+local function enumScreens()
+  local screens = screen.allScreens()
+  screenWatcherDelayed = nil
   local function rect2str(rect)
     return sformat('[%d,%d %dx%d]',rect.x,rect.y,rect.w,rect.h)
   end
@@ -361,17 +371,21 @@ end
 
 local function screensChanged()
   log.d('Screens changed')
+  if screenWatcherDelayed then screenWatcherDelayed:stop() end
   for wl in pairs(instances) do
     wl.duringAutoLayout = true
   end
+  screenWatcherDelayed=timer.doAfter(3,enumScreens)
 end
 
+local screenWatcher=screen.watcher.new(screensChanged)
 
 local function startGlobal()
   if globalRunning then return end
   globalRunning = true
   log.i('global start')
-  screenwatcher.subscribe(screensChanged,enumScreens)
+  screenWatcher:start()
+  screensChanged()
 end
 
 local function stopGlobal()
@@ -382,13 +396,14 @@ local function stopGlobal()
   --  end
   globalRunning = nil
   log.i('global stop')
-  screenwatcher.unsubscribe({enumScreens,screensChanged})
+  if screenWatcherDelayed then screenWatcherDelayed:stop() screenWatcherDelayed=nil end
+  screenWatcher:stop()
 end
 
 local function start(self)
   if instances[self] then log.i('instance was already started, ignoring') return end
   startGlobal()
-  if not screenGeometry then doAfter(1,start,self) return self end
+  if not screenGeometry then timer.doAfter(1,function()start(self)end) return self end
   log.i('start')
   self:removeIDs()
   instances[self] = true
@@ -404,7 +419,7 @@ function windowlayouts:delete()
   log.i('stop')
   instances[self] = nil
   self.automode = nil
-  if self.wwsubs then self.ww:unsubscribe(self.wwsubs) end
+  if self.wfsubs then self.wf:unsubscribe(self.wfsubs) end
   stopGlobal()
 end
 
@@ -413,16 +428,24 @@ end
 --- Pauses the autolayout mode instance
 ---
 --- Returns:
----  * the instance, for method chaining
+---  * the `hs.windowlayouts` object, for method chaining
+function windowlayouts:pause()
+  if self.automode then
+    instances[self]=false log.i('autolayout paused')
+  end
+end
 
 --- hs.windowlayouts:resume() -> hs.windowlayouts
 --- Method
 --- Resumes the autolayout mode instance
 ---
 --- Returns:
----  * the instance, for method chaining
-function windowlayouts:pause() instances[self]=false log.i('autolayout paused')end
-function windowlayouts:resume() instances[self]=true log.i('autolayout resumed') self:removeIDs() self:refreshWindows() end
+---  * the `hs.windowlayouts` object, for method chaining
+function windowlayouts:resume()
+  if self.automode then
+    instances[self]=true log.i('autolayout resumed') self:removeIDs() self:refreshWindows()
+  end
+end
 
 function windowlayouts:resetAll()
   -- useful for testing/debugging
@@ -432,49 +455,42 @@ function windowlayouts:resetAll()
   self:refreshWindows()
 end
 
---- hs.windowlayouts.new(windowwatcher,...) -> hs.windowlayouts
+--- hs.windowlayouts.new(windowfilter) -> hs.windowlayouts
 --- Function
---- Creates a new `hs.windowlayouts` instance. It uses an `hs.windowwatcher` object to only affect specific windows
+--- Creates a new `hs.windowlayouts` instance. It uses an `hs.windowfilter` object to only affect specific windows
 ---
 --- Parameters:
----  * windowwatcher - if all parameters are nil (as in `mywl=hs.windowlayouts.new()`), the default windowwatcher will be used
----                   - otherwise, it can be an `hs.windowwatcher` object, or an `hs.windowfilter` object that will be used to build the windowwatcher
----                   - if none of the above, all parameters are passed to `hs.windowwatcher.new` to create a new instance
----  * ... - (optional) additional arguments passed to `hs.windowwatcher.new`
+---  * windowfilter; it can be:
+---    * `nil` (as in `mywl=hs.windowlayouts.new()`): the default windowfilter will be used
+---    * an `hs.windowfilter` object
+---    * otherwise this parameter is passed to `hs.windowfilter.new` to create a new instance
 ---
 --- Returns:
 ---  * a new `hs.windowlayouts` instance
-local function allnil(...)
-  local n=select('#',...)
-  for i=1,n do if select(i,...)~=nil then return end end
-  return true
-end
-local function new(ww,...)
+local function new(wf)
   local o = setmetatable({layouts={}},{__index=windowlayouts})
-  if ww==nil then
-    if allnil(...) then
-      log.i('new windowlayouts using default windowwatcher')
-      o.ww = windowwatcher.default
-    end
-  elseif type(ww)=='table' and type(ww.getWindows)=='function' then
-    log.i('new windowlayouts using a windowwatcher instance')
-    o.ww = ww
+  if wf==nil then
+    o.wf = windowfilter.default
+  elseif type(wf)=='table' and type(wf.getWindows)=='function' then
+    log.i('new windowlayouts using a windowfilter instance')
+    o.wf = wf
   end
-  if not o.ww then
-    log.i('new windowlayouts, creating windowwatcher')
-    o.ww = windowwatcher.new(ww,...)
+  if not o.wf then
+    log.i('new windowlayouts, creating windowfilter')
+    o.wf = windowfilter.new(wf)
   end
+  o.wf:keepActive()
   return o
 end
 
-function windowlayouts.new(ww,...)
+function windowlayouts.new(wf)
   startGlobal()
-  return start(new(ww,...))
+  return start(new(wf))
 end
 
---- hs.windowlayouts.autolayout.new(windowwatcher,...) -> hs.windowlayouts
+--- hs.windowlayouts.autolayout.new(windowfilter) -> hs.windowlayouts
 --- Method
---- Creates a new `hs.windowlayouts` instance in autolayout mode. It uses an `hs.windowwatcher` object to only affect specific windows.
+--- Creates a new `hs.windowlayouts` instance in autolayout mode. It uses an `hs.windowfilter` object to only affect specific windows.
 --- As you move windows around, the window layout is automatically saved internally for the current screen configuration;
 --- when screen changes are detected, the appropriate layout is automatically applied to current and future windows.
 --- In practice this means that when e.g. you connect your laptop to your triple-monitor setup at your desk,
@@ -482,33 +498,28 @@ end
 --- when you last left your desk - and vice versa.
 ---
 --- Parameters:
----  * windowwatcher - if all parameters are nil (as in `mywl=hs.windowlayouts.autolayout.new()`), the default windowwatcher will be used
----                   - otherwise, it can be an `hs.windowwatcher` object, or an `hs.windowfilter` object that will be used to build the windowwatcher
----                   - if none of the above, all parameters are passed to `hs.windowwatcher.new` to create a new instance
----  * ... - (optional) additional arguments passed to `hs.windowwatcher.new`
+---  * windowfilter; it can be:
+---    * `nil` (as in `mywl=hs.windowlayouts.new()`): the default windowfilter will be used
+---    * an `hs.windowfilter` object
+---    * otherwise this parameter is passed to `hs.windowfilter.new` to create a new instance
 ---
 --- Returns:
 ---  * a new `hs.windowlayouts` instance
 windowlayouts.autolayout={}
-function windowlayouts.autolayout.new(ww,...)
+function windowlayouts.autolayout.new(wf)
   startGlobal()
-  local self=new(ww,...)
-  -- only one automode instance allowed
-  -- scratch that, let's allow multiple
-  --  for wl in pairs(instances) do
-  --    if wl.automode then log.e('only one automode instance is allowed') return end
-  --  end
+  local self=new(wf)
   log.i('start auto mode')
   self.automode = true
   self:loadSettings()
-  self.wwsubs={
+  self.wfsubs={
     function(w,a)self:windowShown(w,a)end,
     function(w,a)self:windowHidden(w,a)end,
     function(w,a)self:windowMoved(w,a)end
   }
-  self.ww:subscribe(windowwatcher.windowShown,self.wwsubs[1])
-    :subscribe(windowwatcher.windowHidden,self.wwsubs[2])
-    :subscribe(windowwatcher.windowMoved,self.wwsubs[3])
+  self.wf:subscribe(windowfilter.windowShown,self.wfsubs[1])
+    :subscribe(windowfilter.windowHidden,self.wfsubs[2])
+    :subscribe(windowfilter.windowMoved,self.wfsubs[3])
   return start(self)
 end
 return windowlayouts
