@@ -453,6 +453,7 @@ local global = {} -- global state
 
 local Window={} -- class
 
+--FIXME GIANT snafu with the usual missing role when window's gone; setFilter on unfocus remvoes the window
 function Window:emitEvent(event)
   local logged, notified
   for wf in pairs(activeFilters) do
