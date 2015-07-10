@@ -44,26 +44,29 @@ local function windowcomp(w1,w2)
   return (w1.id or 0)<(w2.id or 0)
 end
 
+local screenGeometry
 
-function windowlayouts:actualSave()
-  self.saveDelayed=nil
+local function actualSave(self)
+  if self.saveDelayed then self.saveDelayed:stop() self.saveDelayed=nil end
   if self.duringAutolayout then
-    self.saveDelayed=timer.doAfter(5,windowlayouts.actualSave,self)
+    self.saveDelayed=timer.doAfter(5,function()actualSave(self)end)
   else
-    log.i('automode layout saved')
+    self.layouts[screenGeometry] = self.windows
     settings.set(KEY_LAYOUTS, self.layouts)
+    log.i('automode layout saved')
   end
 end
-function windowlayouts:saveSettings()
+local function saveSettings(self)
+  if not self.automode then return end
   if self.saveDelayed then self.saveDelayed:stop() self.saveDelayed=nil end
-  self.saveDelayed=timer.doAfter(1,function()self:actualSave() end)
+  self.saveDelayed=timer.doAfter(1,function()actualSave(self) end)
 end
 
 local function frameEqual(frame,savedwin)
   return frame.x==savedwin.x and frame.y==savedwin.y and frame.w==savedwin.w and frame.h==savedwin.h
 end
 
-function windowlayouts:loadSettings()
+local function loadSettings(self)
   log.i('automode layout loaded')
   self.layouts = settings.get(KEY_LAYOUTS) or {}
 end
@@ -117,9 +120,11 @@ local function findMatchingWindow(self,appname,role,frame,title,pass)
       return found
     end
   end
-  -- return the first of the remaining candidates
-  log.df('last match (%d/%d) for %s [%s]: %s',1,#allwins,role,appname,title)
-  return wins[1]
+  if pass==MATCHANY or not pass then
+    -- return the first of the remaining candidates
+    log.df('last match (%d/%d) for %s [%s]: %s',1,#allwins,role,appname,title)
+    return wins[1]
+  end
 end
 --[[
 function windowlayouts:findMatchingWindow(appname,win,role,title)
@@ -240,8 +245,8 @@ function windowlayouts:windowMoved(win,appname)
   local t = getSavedWindow(self.windows[appname],win:id())
   if not t then log.ef('%s %d (%s) missing!',win:subrole(),win:id(),appname) return end
   t.x=f.x t.y=f.y t.w=f.w t.h=f.h
-  log.df('%s (%s) -> %d,%d [%dx%d]',t.role,appname,t.x,t.y,t.w,t.h)
-  if self.automode then self:saveSettings() end
+  log.f('%s (%s) -> %d,%d [%dx%d]',t.role,appname,t.x,t.y,t.w,t.h)
+  saveSettings(self)
 end
 local function getTitle(win)
   local title = ssub(win:title(),1,40)
@@ -273,12 +278,14 @@ function windowlayouts:windowShown(win,appname)
   t.id=id t.role=role t.title=title
   if not matched then
     local i = sortedinsert(self.windows[appname],t,idcomp)
-    log.df('registered %s [%s %d/%d]: %s',role,appname,i,#self.windows[appname],title)
-    if self.automode then self:saveSettings() end
+    log.f('registered %s [%s %d/%d]: %s',role,appname,i,#self.windows[appname],title)
+    saveSettings(self)
   else
     if self.automode or self.duringAutoLayout then
-      win:setFrame(t,0)
-      log.df('%s (%s) <= %d,%d [%dx%d]',t.role,appname,t.x,t.y,t.w,t.h)
+      if not frameEqual(frame,t) then
+        win:setFrame(t,0)
+        log.f('%s (%s) <= %d,%d [%dx%d]',t.role,appname,t.x,t.y,t.w,t.h)
+      end
     else
       print('------------- NEVAH!')
       -- update with current frame
@@ -337,7 +344,6 @@ function windowlayouts:removeIDs()
 end
 --]]
 
-local screenGeometry
 
 local function getLayout(self)
   self.windows = {}
@@ -392,7 +398,7 @@ end
 ---  * This won't work for instances that have been started in auto mode
 local function applyLayout(self,layout)
   --  if layout then self.layouts[screenGeometry] = layout end
-  log.f('applying %slayout',self.autoMode and 'auto' or '')
+  log.f('applying %slayout',self.automode and 'auto' or '')
   self.duringAutoLayout = true
   self.windows = layout or self.layouts[screenGeometry] or {}
   -- remove all ids
@@ -421,13 +427,15 @@ local function applyLayout(self,layout)
       local t = w.match or w.frame
       t.id=w.id t.role=w.role t.title=w.title
       if w.match then
-        w.win:setFrame(t)
-        log.df('%s (%s) <= %d,%d [%dx%d]',t.role,appname,t.x,t.y,t.w,t.h)
+        if not frameEqual(w.frame,t) then
+          w.win:setFrame(t)
+          log.f('%s (%s) <= %d,%d [%dx%d]',t.role,appname,t.x,t.y,t.w,t.h)
+        end
       elseif self.automode then
         if not self.windows[appname] then self.windows[appname]={} end
         local i = sortedinsert(self.windows[appname],t,idcomp)
-        log.df('registered %s [%s %d/%d]: %s',t.role,appname,i,#self.windows[appname],t.title)
-        self:saveSettings()
+        log.f('registered %s [%s %d/%d]: %s',t.role,appname,i,#self.windows[appname],t.title)
+        saveSettings(self)
       end
     end
   end
@@ -435,13 +443,14 @@ local function applyLayout(self,layout)
   self.duringAutoLayout = nil
 end
 
+
 function windowlayouts:applyLayout(layout)
   if self.automode then log.e('Cannot manually apply a layout in autolayout mode') return end
   if type(layout)=='string' then
     local key=layout..screenGeometry
     layout=settings.get(key)
     if not layout then log.ef('layout key %s not found',key) return
-    else log.df('applying layout from key %s',key) end
+    else log.f('applying layout from key %s',key) end
   end
   if type(layout)~='table' then error('layout must be a table or a string',2) return end
   return applyLayout(self,layout)
@@ -497,7 +506,7 @@ local function startGlobal()
   globalRunning = true
   log.i('global start')
   screenWatcher:start()
-  screensChanged()
+  enumScreens()
 end
 
 local function stopGlobal()
@@ -580,7 +589,7 @@ local function new(wf)
     log.i('new windowlayouts, creating windowfilter')
     o.wf = windowfilter.new(wf)
   end
-  o.wf:keepActive()
+  --  o.wf:keepActive()
   return o
 end
 
@@ -610,10 +619,11 @@ end
 ---  * a new `hs.windowlayouts` instance
 
 local function startauto(self)
-  if instances[self] then log.i('instance was already started, ignoring') return end
-  if not screenGeometry then timer.doAfter(1,function()startauto(self)end) end
+  if self.automode then log.i('instance was already started, ignoring') return end
+  if not screenGeometry then timer.doAfter(1,function()startauto(self)end) return end
+  log.i('start auto mode')
   self.automode = true
-  self:loadSettings()
+  loadSettings(self)
   self.wfsubs={
     function(w,a)self:windowShown(w,a)end,
     function(w,a)self:windowHidden(w,a)end,
@@ -630,7 +640,6 @@ windowlayouts.autolayout={}
 function windowlayouts.autolayout.new(wf)
   startGlobal()
   local self=new(wf)
-  log.i('start auto mode')
   startauto(self)
   return self
 end
