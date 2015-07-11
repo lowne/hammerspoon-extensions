@@ -411,8 +411,10 @@ local function applyLayout(self,layout)
   local apps = {}
   for _, w in ipairs(windows) do
     local appname = w:application():title()
-    if not apps[appname] then apps[appname] = {} end
-    tinsert(apps[appname],{role=w:subrole(),title=getTitle(w),frame=w:frame(),id=w:id() or -1,win=w})
+    if appname then
+      if not apps[appname] then apps[appname] = {} end
+      tinsert(apps[appname],{role=w:subrole(),title=getTitle(w),frame=w:frame(),id=w:id() or -1,win=w})
+    end
   end
   for appname, windows in pairs(apps) do
     for pass=1, MATCHANY do
